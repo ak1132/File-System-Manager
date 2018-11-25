@@ -31,7 +31,7 @@
 /*
  * User defined data-structures
  */
-#define MAX_BLOCKS 64
+#define MAX_BLOCKS 35
 #define MAX_PATH 64
 typedef unsigned int uint;
 
@@ -69,6 +69,8 @@ void *sfs_init(struct fuse_conn_info *conn) {
 
 	log_conn(conn);
 	log_fuse_context(fuse_get_context());
+
+	log_msg("Size of inode : %d",sizeof(inode));
 
 	return SFS_DATA;
 }
