@@ -150,6 +150,7 @@ int sfs_getattr(const char *path, struct stat *statbuf)
 	char fpath[MAX_PATH];
 
 	strcpy(fpath, SFS_DATA->diskfile);
+	strcat(fpath, "/");
 	strcat(fpath, path);
 
 	//initialize things to zero
