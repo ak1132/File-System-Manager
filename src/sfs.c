@@ -32,12 +32,19 @@
  * User defined data-structures
  */
 #define MAX_BLOCKS 35
-#define MAX_PATH 64
+#define MAX_PATH 128
+#define MAX_INODES 256
+#define DISK_SIZE 16 * 1024 * 1024
 typedef unsigned int uint;
 
-typedef struct inode {
+uint DATA_BITMAP_START = 0;
+uint DATA_BLOCK_START = 0;
+uint INODE_BLOCK_START = 0;
+
+typedef struct inode
+{
 	mode_t permissions;
-	uint is_dir :1; //0-> file, 1-> directory
+	uint is_dir : 1; //0-> file, 1-> directory
 	long created, modified;
 	uint link_count;
 	uint size;
@@ -45,7 +52,32 @@ typedef struct inode {
 	uint blocks[MAX_BLOCKS];
 	uint *blocks_single;
 	char path[MAX_PATH];
-} inode;
+} inode; //256 bytes
+
+inode *find_inode(char *path)
+{
+	int i;
+	for (i = INODE_BLOCK_START; i < INODE_BLOCK_START + MAX_INODES; i++)
+	{
+		void *block_buffer = malloc(BLOCK_SIZE);
+		if (block_read(i, block_buffer))
+		{
+			void *i1 = malloc(sizeof(inode));
+			void *i2 = malloc(sizeof(inode));
+			memcpy(i1, block_buffer, sizeof(inode));
+			if (strcmp(((inode *)i1)->path, path) == 0)
+			{
+				return i1;
+			}
+			memcpy(i2, block_buffer, sizeof(inode));
+			if (strcmp(((inode *)i2)->path, path) == 0)
+			{
+				return i2;
+			}
+		}
+	}
+	return NULL;
+}
 
 ///////////////////////////////////////////////////////////
 //
@@ -63,14 +95,33 @@ typedef struct inode {
  * Introduced in version 2.3
  * Changed in version 2.6
  */
-void *sfs_init(struct fuse_conn_info *conn) {
+void *sfs_init(struct fuse_conn_info *conn)
+{
 	fprintf(stderr, "in bb-init\n");
 	log_msg("\nsfs_init()\n");
 
 	log_conn(conn);
 	log_fuse_context(fuse_get_context());
 
-	log_msg("Size of inode : %d",sizeof(inode));
+	disk_open(SFS_DATA->diskfile);
+	//struct stat *stat_buf = malloc(sizeof(struct stat));
+	//lstat(SFS_DATA->diskfile, stat_buf);
+
+	//log_stat(stat_buf);
+
+	if (stat_buf->st_size != 0)
+	{
+		INODE_BLOCK_START = DISK_SIZE / BLOCK_SIZE / 8 / BLOCK_SIZE;
+		DATA_BLOCK_START = INODE_BLOCK_START + (MAX_INODES * sizeof(inode)) / BLOCK_SIZE;
+
+		void *block_buffer = malloc(BLOCK_SIZE);
+		memset(block_buffer, 0, BLOCK_SIZE);
+		int i;
+		for (i = 0; i < INODE_BLOCK_START; i++)
+		{
+			block_write(i, block_buffer);
+		}
+	}
 
 	return SFS_DATA;
 }
@@ -82,7 +133,8 @@ void *sfs_init(struct fuse_conn_info *conn) {
  *
  * Introduced in version 2.3
  */
-void sfs_destroy(void *userdata) {
+void sfs_destroy(void *userdata)
+{
 	log_msg("\nsfs_destroy(userdata=0x%08x)\n", userdata);
 }
 
@@ -92,9 +144,32 @@ void sfs_destroy(void *userdata) {
  * ignored.  The 'st_ino' field is ignored except if the 'use_ino'
  * mount option is given.
  */
-int sfs_getattr(const char *path, struct stat *statbuf) {
+int sfs_getattr(const char *path, struct stat *statbuf)
+{
 	int retstat = 0;
-	char fpath[PATH_MAX];
+	char fpath[MAX_PATH];
+
+	strcpy(fpath, SFS_DATA->diskfile);
+	strcat(fpath, path);
+
+	//initialize things to zero
+	memset(statbuf, 0, sizeof(struct stat));
+
+	//find the inode with the path
+	inode *node = find_inode(path);
+
+	if (node != NULL)
+	{
+		statbuf->st_mode = n->st_mode;
+		statbuf->st_nlink = n->link_count;
+		statbuf->st_uid = n->uid;
+		statbuf->st_gid=n->gid;
+		statbuf->st_ctime = n->created;
+		statbuf->st_size = n->size;
+	}else{
+		log_msg("inode with path %s not found!",path);
+		retstat = ENOENT;
+	}
 
 	log_msg("\nsfs_getattr(path=\"%s\", statbuf=0x%08x)\n", path, statbuf);
 
@@ -113,7 +188,8 @@ int sfs_getattr(const char *path, struct stat *statbuf) {
  *
  * Introduced in version 2.5
  */
-int sfs_create(const char *path, mode_t mode, struct fuse_file_info *fi) {
+int sfs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
+{
 	int retstat = 0;
 	log_msg("\nsfs_create(path=\"%s\", mode=0%03o, fi=0x%08x)\n", path, mode,
 			fi);
@@ -122,7 +198,8 @@ int sfs_create(const char *path, mode_t mode, struct fuse_file_info *fi) {
 }
 
 /** Remove a file */
-int sfs_unlink(const char *path) {
+int sfs_unlink(const char *path)
+{
 	int retstat = 0;
 	log_msg("sfs_unlink(path=\"%s\")\n", path);
 
@@ -139,7 +216,8 @@ int sfs_unlink(const char *path) {
  *
  * Changed in version 2.2
  */
-int sfs_open(const char *path, struct fuse_file_info *fi) {
+int sfs_open(const char *path, struct fuse_file_info *fi)
+{
 	int retstat = 0;
 	log_msg("\nsfs_open(path\"%s\", fi=0x%08x)\n", path, fi);
 
@@ -160,7 +238,8 @@ int sfs_open(const char *path, struct fuse_file_info *fi) {
  *
  * Changed in version 2.2
  */
-int sfs_release(const char *path, struct fuse_file_info *fi) {
+int sfs_release(const char *path, struct fuse_file_info *fi)
+{
 	int retstat = 0;
 	log_msg("\nsfs_release(path=\"%s\", fi=0x%08x)\n", path, fi);
 
@@ -179,11 +258,12 @@ int sfs_release(const char *path, struct fuse_file_info *fi) {
  * Changed in version 2.2
  */
 int sfs_read(const char *path, char *buf, size_t size, off_t offset,
-		struct fuse_file_info *fi) {
+			 struct fuse_file_info *fi)
+{
 	int retstat = 0;
 	log_msg(
-			"\nsfs_read(path=\"%s\", buf=0x%08x, size=%d, offset=%lld, fi=0x%08x)\n",
-			path, buf, size, offset, fi);
+		"\nsfs_read(path=\"%s\", buf=0x%08x, size=%d, offset=%lld, fi=0x%08x)\n",
+		path, buf, size, offset, fi);
 
 	return retstat;
 }
@@ -197,17 +277,19 @@ int sfs_read(const char *path, char *buf, size_t size, off_t offset,
  * Changed in version 2.2
  */
 int sfs_write(const char *path, const char *buf, size_t size, off_t offset,
-		struct fuse_file_info *fi) {
+			  struct fuse_file_info *fi)
+{
 	int retstat = 0;
 	log_msg(
-			"\nsfs_write(path=\"%s\", buf=0x%08x, size=%d, offset=%lld, fi=0x%08x)\n",
-			path, buf, size, offset, fi);
+		"\nsfs_write(path=\"%s\", buf=0x%08x, size=%d, offset=%lld, fi=0x%08x)\n",
+		path, buf, size, offset, fi);
 
 	return retstat;
 }
 
 /** Create a directory */
-int sfs_mkdir(const char *path, mode_t mode) {
+int sfs_mkdir(const char *path, mode_t mode)
+{
 	int retstat = 0;
 	log_msg("\nsfs_mkdir(path=\"%s\", mode=0%3o)\n", path, mode);
 
@@ -215,7 +297,8 @@ int sfs_mkdir(const char *path, mode_t mode) {
 }
 
 /** Remove a directory */
-int sfs_rmdir(const char *path) {
+int sfs_rmdir(const char *path)
+{
 	int retstat = 0;
 	log_msg("sfs_rmdir(path=\"%s\")\n", path);
 
@@ -229,7 +312,8 @@ int sfs_rmdir(const char *path) {
  *
  * Introduced in version 2.3
  */
-int sfs_opendir(const char *path, struct fuse_file_info *fi) {
+int sfs_opendir(const char *path, struct fuse_file_info *fi)
+{
 	int retstat = 0;
 	log_msg("\nsfs_opendir(path=\"%s\", fi=0x%08x)\n", path, fi);
 
@@ -258,7 +342,8 @@ int sfs_opendir(const char *path, struct fuse_file_info *fi) {
  * Introduced in version 2.3
  */
 int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
-		off_t offset, struct fuse_file_info *fi) {
+				off_t offset, struct fuse_file_info *fi)
+{
 	int retstat = 0;
 
 	return retstat;
@@ -268,28 +353,39 @@ int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
  *
  * Introduced in version 2.3
  */
-int sfs_releasedir(const char *path, struct fuse_file_info *fi) {
+int sfs_releasedir(const char *path, struct fuse_file_info *fi)
+{
 	int retstat = 0;
 
 	return retstat;
 }
 
-struct fuse_operations sfs_oper = { .init = sfs_init, .destroy = sfs_destroy,
+struct fuse_operations sfs_oper = {.init = sfs_init, .destroy = sfs_destroy,
 
-.getattr = sfs_getattr, .create = sfs_create, .unlink = sfs_unlink, .open =
-		sfs_open, .release = sfs_release, .read = sfs_read, .write = sfs_write,
+								   .getattr = sfs_getattr,
+								   .create = sfs_create,
+								   .unlink = sfs_unlink,
+								   .open = sfs_open,
+								   .release = sfs_release,
+								   .read = sfs_read,
+								   .write = sfs_write,
 
-.rmdir = sfs_rmdir, .mkdir = sfs_mkdir,
+								   .rmdir = sfs_rmdir,
+								   .mkdir = sfs_mkdir,
 
-.opendir = sfs_opendir, .readdir = sfs_readdir, .releasedir = sfs_releasedir };
+								   .opendir = sfs_opendir,
+								   .readdir = sfs_readdir,
+								   .releasedir = sfs_releasedir};
 
-void sfs_usage() {
+void sfs_usage()
+{
 	fprintf(stderr,
 			"usage:  sfs [FUSE and mount options] diskFile mountPoint\n");
 	abort();
 }
 
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[])
+{
 	int fuse_stat;
 	struct sfs_state *sfs_data;
 
@@ -298,7 +394,8 @@ int main(int argc, char *argv[]) {
 		sfs_usage();
 
 	sfs_data = malloc(sizeof(struct sfs_state));
-	if (sfs_data == NULL) {
+	if (sfs_data == NULL)
+	{
 		perror("main calloc");
 		abort();
 	}

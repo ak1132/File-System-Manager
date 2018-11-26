@@ -13,6 +13,7 @@
 #include <sys/stat.h>
 
 #include "block.h"
+#include "log.h"
 
 int diskfile = -1;
 
@@ -22,6 +23,7 @@ void disk_open(const char* diskfile_path) {
 	}
 
 	diskfile = open(diskfile_path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+	log_msg("Disk file : %d\n",diskfile);
 	if (diskfile < 0) {
 		perror("disk_open failed");
 		exit(EXIT_FAILURE);
