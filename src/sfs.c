@@ -184,14 +184,14 @@ void *sfs_init(struct fuse_conn_info *conn)
 
 	//log_stat(stat_buf);
 
-	TOTAL_BLOCKS = DISK_SIZE / BLOCK_SIZE;
+	/*TOTAL_BLOCKS = DISK_SIZE / BLOCK_SIZE;
 	MAX_DATA_BLOCKS = TOTAL_BLOCKS - DATA_BLOCK_START + 1;
 	MAX_INODES_BLOCKS = MAX_INODES/(BLOCK_SIZE/ sizeof(inode));
 	DATA_BLOCK_START = INODE_BLOCK_START + (MAX_INODES * sizeof(inode)) / BLOCK_SIZE;
 
 	inode_bitmap = malloc(MAX_INODES/8);
 	memset(inode_bitmap, 0, MAX_INODES/8);
-	data_bitmap = malloc()
+	data_bitmap = malloc(MAX_DATA_BLOCKS/8); //to-do
 
 	void *block_buffer = malloc(BLOCK_SIZE);
 	memset(block_buffer, 0, BLOCK_SIZE);
@@ -204,15 +204,15 @@ void *sfs_init(struct fuse_conn_info *conn)
 	// Create dir inode for root path '/'
 	int inode_index = first_unset_bit(INODE_BLOCK_START, MAX_INODES_BLOCKS);
 	inode *new_inode = (void *)INODE_BLOCK_START + inode_index * sizeof(inode);
-	new_inode->path = "/";
+	memset(new_inode->path,'/',1);
 	new_inode->permissions = S_IFDIR | 0755;
-	new_inode->blocks = 0;
+	//new_inode->blocks;
 	new_inode->blocks_single = NULL;
 	new_inode->created = time(NULL);
 	new_inode->is_dir = 1;
 	new_inode->gid = getegid();
 	new_inode->uid = getuid();
-	new_inode->link_count = 2;
+	new_inode->link_count = 2;*/
 
 	return SFS_DATA;
 }
@@ -249,12 +249,16 @@ void sfs_destroy(void *userdata)
  */
 int sfs_getattr(const char *path, struct stat *statbuf)
 {
+	log_msg("\nsfs_getattr(path=\"%s\", statbuf=0x%08x)\n", path, statbuf);
+
 	int retstat = 0;
 	char fpath[MAX_PATH];
 
 	strcpy(fpath, SFS_DATA->diskfile);
 	strcat(fpath, "/");
 	strcat(fpath, path);
+
+	log_msg("File path : %s",fpath);
 
 	//initialize things to zero
 	memset(statbuf, 0, sizeof(struct stat));
@@ -274,8 +278,6 @@ int sfs_getattr(const char *path, struct stat *statbuf)
 		log_msg("inode with path %s not found!",path);
 		retstat = ENOENT;
 	}
-
-	log_msg("\nsfs_getattr(path=\"%s\", statbuf=0x%08x)\n", path, statbuf);
 
 	return retstat;
 }
