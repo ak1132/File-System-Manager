@@ -37,9 +37,17 @@
 #define DISK_SIZE 16 * 1024 * 1024
 typedef unsigned int uint;
 
-uint DATA_BITMAP_START = 0;
-uint DATA_BLOCK_START = 0;
-uint INODE_BLOCK_START = 0;
+void *inode_bitmap;
+void *data_bitmap;
+
+uint TOTAL_BLOCKS;
+uint INODE_BITMAP_START = 0;
+uint DATA_BITMAP_START = 1;
+uint INODE_BLOCK_START = 9;
+uint DATA_BLOCK_START = 137;
+
+uint MAX_DATA_BLOCKS;
+uint MAX_INODES_BLOCKS;
 
 typedef struct inode
 {
@@ -57,26 +65,91 @@ typedef struct inode
 inode *find_inode(char *path)
 {
 	int i;
-	for (i = INODE_BLOCK_START; i < INODE_BLOCK_START + MAX_INODES; i++)
+	void *block_buffer = malloc(BLOCK_SIZE);
+	for (i = INODE_BLOCK_START; i < INODE_BLOCK_START + MAX_INODES/(BLOCK_SIZE/ sizeof(inode)); i++)
 	{
-		void *block_buffer = malloc(BLOCK_SIZE);
+
 		if (block_read(i, block_buffer))
 		{
-			void *i1 = malloc(sizeof(inode));
-			void *i2 = malloc(sizeof(inode));
-			memcpy(i1, block_buffer, sizeof(inode));
-			if (strcmp(((inode *)i1)->path, path) == 0)
+			inode *i1 = (inode *) block_buffer;
+			inode *i2 = (inode *) ((void *)block_buffer + sizeof(inode));
+//
+			if (strcmp((i1)->path, path) == 0)
 			{
+				i1 = malloc(sizeof(inode));
+				memcpy(i1, block_buffer, sizeof(inode));
+				free(block_buffer);
 				return i1;
 			}
-			memcpy(i2, block_buffer, sizeof(inode));
-			if (strcmp(((inode *)i2)->path, path) == 0)
+//
+			if (strcmp((i2)->path, path) == 0)
 			{
+				i2 = malloc(sizeof(inode));
+				memcpy(i2, block_buffer + sizeof(inode), sizeof(inode));
+				free(block_buffer);
 				return i2;
 			}
 		}
 	}
+	free(block_buffer);
 	return NULL;
+}
+
+void set_bit(int base_block_num, int bit_index)
+{
+	char *block_buffer = malloc(BLOCK_SIZE);
+	int byte_index;
+	int block_num = base_block_num + bit_index/8/BLOCK_SIZE;
+	if (block_read(block_num, block_buffer))
+	{
+		byte_index = (bit_index % BLOCK_SIZE) / 8;
+		block_buffer[byte_index] = block_buffer[byte_index] || 1 << (7 - ((bit_index % BLOCK_SIZE) % 8));
+//		block_write(block_num, block_buffer);
+//		free(block_buffer);
+	}
+}
+
+void unset_bit(int base_block_num, int bit_index)
+{
+	char *block_buffer = malloc(BLOCK_SIZE);
+	int byte_index;
+	int block_num = base_block_num + bit_index/8/BLOCK_SIZE;
+	if (block_read(block_num, block_buffer))
+	{
+		byte_index = (bit_index % BLOCK_SIZE) / 8;
+		block_buffer[byte_index] = block_buffer[byte_index] && (0xFF - (1 << (7 - ((bit_index % BLOCK_SIZE) % 8))));
+//		block_write(block_num, block_buffer);
+//		free(block_buffer);
+	}
+}
+
+int first_unset_bit(int base_block, int blocks)
+{
+	char *block_buffer = malloc(BLOCK_SIZE);
+	int i,j;
+	int curr_block = 0;
+
+	for(curr_block = 0; curr_block < blocks; curr_block++)
+	{
+		if (block_read(base_block + curr_block, block_buffer))
+		{
+			for(j = 0; j < BLOCK_SIZE*8; j++)
+			{
+				if(block_buffer[j/8] && 1 << (7-j%8) == 0)
+				{
+					free(block_buffer);
+					return curr_block * BLOCK_SIZE * 8 + j;
+				}
+			}
+
+		}else
+		{
+			log_msg("Could not read Block : %d", curr_block);
+		}
+	}
+
+	free(block_buffer);
+	return -1;
 }
 
 ///////////////////////////////////////////////////////////
@@ -97,6 +170,8 @@ inode *find_inode(char *path)
  */
 void *sfs_init(struct fuse_conn_info *conn)
 {
+    // TODO: Write code to check if disk needs to be reformatted
+
 	fprintf(stderr, "in bb-init\n");
 	log_msg("\nsfs_init()\n");
 
@@ -109,19 +184,35 @@ void *sfs_init(struct fuse_conn_info *conn)
 
 	//log_stat(stat_buf);
 
-	if (stat_buf->st_size != 0)
-	{
-		INODE_BLOCK_START = DISK_SIZE / BLOCK_SIZE / 8 / BLOCK_SIZE;
-		DATA_BLOCK_START = INODE_BLOCK_START + (MAX_INODES * sizeof(inode)) / BLOCK_SIZE;
+	TOTAL_BLOCKS = DISK_SIZE / BLOCK_SIZE;
+	MAX_DATA_BLOCKS = TOTAL_BLOCKS - DATA_BLOCK_START + 1;
+	MAX_INODES_BLOCKS = MAX_INODES/(BLOCK_SIZE/ sizeof(inode));
+	DATA_BLOCK_START = INODE_BLOCK_START + (MAX_INODES * sizeof(inode)) / BLOCK_SIZE;
 
-		void *block_buffer = malloc(BLOCK_SIZE);
-		memset(block_buffer, 0, BLOCK_SIZE);
-		int i;
-		for (i = 0; i < INODE_BLOCK_START; i++)
-		{
-			block_write(i, block_buffer);
-		}
+	inode_bitmap = malloc(MAX_INODES/8);
+	memset(inode_bitmap, 0, MAX_INODES/8);
+	data_bitmap = malloc()
+
+	void *block_buffer = malloc(BLOCK_SIZE);
+	memset(block_buffer, 0, BLOCK_SIZE);
+	int i;
+	for (i = 0; i < INODE_BLOCK_START; i++)
+	{
+		block_write(i, block_buffer);
 	}
+
+	// Create dir inode for root path '/'
+	int inode_index = first_unset_bit(INODE_BLOCK_START, MAX_INODES_BLOCKS);
+	inode *new_inode = (void *)INODE_BLOCK_START + inode_index * sizeof(inode);
+	new_inode->path = "/";
+	new_inode->permissions = S_IFDIR | 0755;
+	new_inode->blocks = 0;
+	new_inode->blocks_single = NULL;
+	new_inode->created = time(NULL);
+	new_inode->is_dir = 1;
+	new_inode->gid = getegid();
+	new_inode->uid = getuid();
+	new_inode->link_count = 2;
 
 	return SFS_DATA;
 }
@@ -136,6 +227,18 @@ void *sfs_init(struct fuse_conn_info *conn)
 void sfs_destroy(void *userdata)
 {
 	log_msg("\nsfs_destroy(userdata=0x%08x)\n", userdata);
+
+	// Write inode bitmap block to disk
+	block_write(INODE_BITMAP_START,inode_bitmap);
+
+	// Write data bitmap block to disk
+	int curr_block;
+	void *data_bmp_ptr = data_bitmap;
+
+	for(curr_block = DATA_BITMAP_START; curr_block < INODE_BLOCK_START; curr_block++)
+	{
+		block_write(curr_block,data_bmp_ptr + (curr_block - DATA_BITMAP_START) * BLOCK_SIZE);
+	}
 }
 
 /** Get file attributes.
@@ -161,12 +264,12 @@ int sfs_getattr(const char *path, struct stat *statbuf)
 
 	if (node != NULL)
 	{
-		statbuf->st_mode = n->st_mode;
-		statbuf->st_nlink = n->link_count;
-		statbuf->st_uid = n->uid;
-		statbuf->st_gid=n->gid;
-		statbuf->st_ctime = n->created;
-		statbuf->st_size = n->size;
+		statbuf->st_mode = node->permissions;
+		statbuf->st_nlink = node->link_count;
+		statbuf->st_uid = node->uid;
+		statbuf->st_gid= node->gid;
+		statbuf->st_ctime = node->created;
+		statbuf->st_size = node->size;
 	}else{
 		log_msg("inode with path %s not found!",path);
 		retstat = ENOENT;
@@ -194,6 +297,23 @@ int sfs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 	int retstat = 0;
 	log_msg("\nsfs_create(path=\"%s\", mode=0%03o, fi=0x%08x)\n", path, mode,
 			fi);
+
+	// Find empty data block
+	int data_block_index = first_unset_bit(DATA_BLOCK_START, MAX_DATA_BLOCKS);
+	if(data_block_index == -1)
+	{
+		log_msg("sfs_create: Empty datablock not found!!!\n");
+		return -1;
+	}
+
+	int inode_index = first_unset_bit(INODE_BITMAP_START, MAX_INODES_BLOCKS);
+	if(inode_index == -1)
+	{
+		log_msg("sfs_create: Empty inode not found!!!\n");
+		return -1;
+	}
+
+	inode *new_inode = INODE_BLOCK_START * BLOCK_SIZE;
 
 	return retstat;
 }
