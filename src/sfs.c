@@ -32,7 +32,7 @@
 /*
  * User defined data-structures
  */
-#define IDENTIFIER "U2Pn1KJCO4sVzNZuSxzGcVDP1YbULrAgxr0WKOZQncW4N3ETktEyjn9QTfypJNaJ5LYHUl2pI5YORqubjsPuopJVojWcPPq15L282kdczm8MLO7pEyiTYHIQqLnCnRUECYV1aQ82YHayHPgVuBXKhxaM2qdpfR9kcAi2MnYM8c3HKOSThVdaxyhGwtCnG8qxwPhyDRusYynVUqtgQotbUix2cTSi3v0VIB9seSxwgq1U2InEwHSQScwGNwkG8KfI"
+#define IDENTIFIER "U2Pn1KJCO4sVzNZuSxzGcVDP1YbULrAgxr0WKOZQncW4N3ETktEyjn9QTfypJNaJ5LYHUl2pI5YORqubjsPuopJVojWcPPq15L282kdczm8MLO7pEyiTYHIQqLnCnRUECYV1aQ82YHayHPgVuBXKhxaM2qdpfR9kcAi2MnYM8c3HKOSThVdaxyhGwtCnG8qxwPhyDRusYynVUqtgQotbUix2cTSi3v0VIB9seSxwgq1U2InEwHSQS"
 #define MAX_BLOCKS 35
 #define MAX_PATH 128
 #define MAX_INODES 256
@@ -52,15 +52,14 @@ typedef struct inode
     char path[MAX_PATH];
 } inode; //256 bytes
 
-
 /* typedef struct superblock{
     char identifier[256] = IDENTIFIER;
 } */
 
 #define TOTAL_BLOCKS DISK_SIZE / BLOCK_SIZE
-#define INODE_BITMAP_START 0
-#define DATA_BITMAP_START 1
-#define INODE_BLOCK_START 9
+#define INODE_BITMAP_START 1
+#define DATA_BITMAP_START 2
+#define INODE_BLOCK_START 10
 #define DATA_BLOCK_START INODE_BLOCK_START + (MAX_INODES * sizeof(inode)) / BLOCK_SIZE
 #define MAX_DATA_BLOCKS (TOTAL_BLOCKS - DATA_BLOCK_START) + 1
 
@@ -76,46 +75,81 @@ inode *find_inode(char *path)
 {
     int i;
 
-    for(i=0;i<MAX_INODES;i++){
-        if(inode_bitmap[i/8] && (1<<(7-(i%8)))){
-            if(strcmp(inode_list[i].path,path)==0){
-                log_msg("File found %s\n",path);
+    for (i = 0; i < MAX_INODES; i++)
+    {
+        if (inode_bitmap[i / 8] && (1 << (7 - (i % 8))))
+        {
+            if (strcmp(inode_list[i].path, path) == 0)
+            {
+                log_msg("File found %s\n", path);
                 return &inode_list[i];
             }
         }
     }
-    
-    return NULL; 
+
+    return NULL;
+}
+
+inode *find_parent(char path[])
+{
+    if (path == NULL)
+        return NULL;
+
+    int length = sizeof(path);
+
+    if (length == 1)
+        return &inode_list[0];
+
+    int i;
+    char parent[MAX_PATH];
+    inode *p;
+    for (i = length - 1; i >= 0; i--)
+    {
+        if (path[i] == '/')
+        {
+            break;
+        }
+    }
+
+    if (i > 0)
+    {
+        strncpy(parent, path, i + 1);
+        p = find_inode(parent);
+    }
+    return p;
 }
 
 int get_first_unset_bit(char bitmap[])
 {
-	int i, j;
+    int i, j;
     int block_length = sizeof(bitmap);
-	for (i = 0; i < block_length; i++) {
-		for (j = 1; j <= 8; j++) {
-			if (!(bitmap[i] & (1 << (8 - j)))) {
-				log_msg("\nDEBUG: CLEAR BIT FOUND AT INDEX: %d POSITION: %d\n",
-						i, j);
-				return ((i * 8) + j);
-			}
-		}
-	}
-	return -1;
+    for (i = 0; i < block_length; i++)
+    {
+        for (j = 1; j <= 8; j++)
+        {
+            if (!(bitmap[i] & (1 << (8 - j))))
+            {
+                log_msg("\nclear bit found at (%d,%d) %d\n",
+                        i, j);
+                return ((i * 8) + j);
+            }
+        }
+    }
+    return -1;
 }
 
-void set_bit(char bitmap[],int index)
+void set_bit(char bitmap[], int index)
 {
-    int map_index = index/8;
-    int shift = index%8;
-    bitmap[map_index] |= (1<<(7-shift));
+    int map_index = index / 8;
+    int shift = index % 8;
+    bitmap[map_index] |= (1 << (7 - shift));
 }
 
-void unset_bit(char bitmap[],int index)
+void unset_bit(char bitmap[], int index)
 {
-    int map_index = index/8;
-    int shift = index%8;
-    bitmap[map_index] &= ~(1<<(7-shift));
+    int map_index = index / 8;
+    int shift = index % 8;
+    bitmap[map_index] &= ~(1 << (7 - shift));
 }
 
 /**
@@ -138,21 +172,37 @@ void *sfs_init(struct fuse_conn_info *conn)
 
     char *block_buffer = malloc(BLOCK_SIZE);
     disk_open(SFS_DATA->diskfile);
-    
-    if(block_read(0,block_buffer) >= 0){
 
-        if(strcmp(IDENTIFIER,block_buffer)==0){
+    if (block_read(0, block_buffer) >= 0)
+    {
+
+        if (strcmp(IDENTIFIER, block_buffer) == 0)
+        {
 
             log_msg("FS is already initialized\n");
-        }else{
-            
+            block_read(INODE_BITMAP_START, inode_bitmap);
+
+            int j;
+            for (j = DATA_BITMAP_START; j < DATA_BITMAP_START + 8; j++)
+            {
+                block_read(j, data_bitmap + (j - DATA_BITMAP_START) * BLOCK_SIZE);
+            }
+
+            for (j = 0; j < MAX_INODES / 2; j++)
+            {
+                block_read(j + INODE_BLOCK_START, (void *)(&inode_list) + j * BLOCK_SIZE);
+            }
+        }
+        else
+        {
+
             memset(inode_bitmap, 0, sizeof(inode_bitmap));
             memset(data_bitmap, 0, sizeof(data_bitmap));
 
-            memset(block_buffer,0,BLOCK_SIZE);
+            memset(block_buffer, 0, BLOCK_SIZE);
 
-            inode *new_inode = (inode*)block_buffer;
-            memset(new_inode->path,'/',1);
+            inode *new_inode = (inode *)block_buffer;
+            memset(new_inode->path, '/', 1);
             new_inode->permissions = S_IFDIR | 0755;
             new_inode->blocks_single = NULL;
             new_inode->created = time(NULL);
@@ -163,12 +213,29 @@ void *sfs_init(struct fuse_conn_info *conn)
             new_inode->link_count = 2;
             new_inode->size = 0;
 
-            set_bit(inode_bitmap,0);
-            memcpy(&inode_list[0],new_inode,sizeof(inode));
+            set_bit(inode_bitmap, 0);
+            memcpy(&inode_list[0], new_inode, sizeof(inode));
 
-            //block_write(INODE_BLOCK_START,block_buffer);
+            block_write(INODE_BLOCK_START, &inode_list);
+
+            void *temp = malloc(BLOCK_SIZE);
+            strcpy(temp, IDENTIFIER);
+
+            block_write(0, temp);
+
+            memset(block_buffer, '0', BLOCK_SIZE);
+            memcpy(block_buffer, inode_bitmap, MAX_INODES / 8);
+            block_write(INODE_BITMAP_START, block_buffer);
+
+            int j;
+            for (j = DATA_BITMAP_START; j < DATA_BITMAP_START + 8; j++)
+            {
+                block_write(j, data_bitmap + (j - DATA_BITMAP_START) * BLOCK_SIZE);
+            }
         }
-    }else{
+    }
+    else
+    {
         log_msg("Could not read the file\n");
     }
 
@@ -198,7 +265,7 @@ void sfs_destroy(void *userdata)
 int sfs_getattr(const char *path, struct stat *statbuf)
 {
     int retstat = 0;
-    
+
     log_msg("\nsfs_getattr(path=\"%s\", statbuf=0x%08x)\n",
             path, statbuf);
 
@@ -241,6 +308,63 @@ int sfs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
     int retstat = 0;
     log_msg("\nsfs_create(path=\"%s\", mode=0%03o, fi=0x%08x)\n",
             path, mode, fi);
+
+    if (find_inode(path) != NULL)
+    {
+        log_msg("File already exists\n");
+        retstat = -EEXIST;
+    }
+    else
+    {
+        int free_block = get_first_unset_bit(data_bitmap);
+
+        if (free_block > -1)
+        {
+            int free_inode = get_first_unset_bit(inode_bitmap);
+
+            if (free_inode > -1)
+            {
+                inode *node = &inode_list[free_inode];
+                strcpy(node->path, path);
+                node->permissions = S_IFREG | 0644;
+                node->blocks_single = NULL;
+                node->created = time(NULL);
+                node->modified = time(NULL);
+                node->is_dir = 0;
+                node->gid = getegid();
+                node->uid = getuid();
+                node->link_count = 1;
+                node->blocks[0] = free_block;
+                node->size = 1;
+
+                //Update parent inode
+                inode *p = find_parent(path);
+                if (p == NULL)
+                {
+                    log_msg("Some shit \n");
+                    retstat = -EFAULT; //TO_DO sme other fault number
+                }
+                else
+                {
+                    if (p->is_dir == 0)
+                    {
+                        log_msg("Parent is not a directory\n");
+                        retstat = -EFAULT;
+                    }
+                    p->link_count++;
+                }
+            }
+            else
+            {
+                log_msg("Out of INODES\n");
+                retstat = -EFAULT;
+            }
+        }
+        else
+        {
+            retstat = -ENOMEM; //Disk out of memory
+        }
+    }
 
     return retstat;
 }
