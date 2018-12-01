@@ -33,7 +33,7 @@
  * User defined data-structures
  */
 #define IDENTIFIER "U2Pn1KJCO4sVzNZuSxzGcVDP1YbULrAgxr0WKOZQncW4N3ETktEyjn9QTfypJNaJ5LYHUl2pI5YORqubjsPuopJVojWcPPq15L282kdczm8MLO7pEyiTYHIQqLnCnRUECYV1aQ82YHayHPgVuBXKhxaM2qdpfR9kcAi2MnYM8c3HKOSThVdaxyhGwtCnG8qxwPhyDRusYynVUqtgQotbUix2cTSi3v0VIB9seSxwgq1U2InEwHSQS"
-#define MAX_BLOCKS 35
+#define MAX_BLOCKS 33
 #define MAX_PATH 128
 #define MAX_INODES 256
 #define DISK_SIZE 16 * 1024 * 1024
@@ -43,7 +43,7 @@ typedef struct inode
 {
     mode_t permissions;
     uint is_dir : 1; //0-> file, 1-> directory
-    long created, modified;
+    long created, modified, accessed;
     uint link_count;
     uint size;
     uint uid, gid;
@@ -71,6 +71,30 @@ char data_bitmap[MAX_DATA_BLOCKS / 8];
 inode inode_list[MAX_INODES];
 
 // TO_DO Write the structs to disk blocks
+
+char *get_file_name(char *path)
+{
+    int len = strlen(path);
+    if (len == 0)
+        return NULL;
+    if (len == 1)
+        return path;
+    int i = len - 1;
+    for (; i >= 0; i--)
+    {
+        if (path[i] == '/')
+            break;
+    }
+    char *temp;
+    if (i > 0)
+    {
+        temp = malloc(len - i);
+        memcpy(temp, path + i + 1, len - i);
+    }
+
+    return temp;
+}
+
 inode *find_inode(char *path)
 {
     int i;
@@ -207,6 +231,7 @@ void *sfs_init(struct fuse_conn_info *conn)
             new_inode->blocks_single = NULL;
             new_inode->created = time(NULL);
             new_inode->modified = time(NULL);
+            new_inode->accessed = time(NULL);
             new_inode->is_dir = 1;
             new_inode->gid = getegid();
             new_inode->uid = getuid();
@@ -281,6 +306,8 @@ int sfs_getattr(const char *path, struct stat *statbuf)
         statbuf->st_gid = node->gid;
         statbuf->st_ctime = node->created;
         statbuf->st_size = node->size;
+        statbuf->st_atime = node->accessed;
+        statbuf->st_mtime = node->modified;
     }
     else
     {
@@ -491,6 +518,22 @@ int sfs_opendir(const char *path, struct fuse_file_info *fi)
     log_msg("\nsfs_opendir(path=\"%s\", fi=0x%08x)\n",
             path, fi);
 
+    inode *node = find_inode(path);
+
+    if (node != NULL)
+    {
+        log_msg("Directory file found\n");
+        if (node->is_dir == 0)
+        {
+            log_msg("File is not a directory\n");
+            retstat = -EPERM;
+        }
+    }
+    else
+    {
+        retstat = -ENOENT;
+    }
+
     return retstat;
 }
 
@@ -520,6 +563,35 @@ int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offse
 {
     int retstat = 0;
 
+    log_msg("Reading directory......\n");
+
+    //fill for the buffer
+    //filler(buf, ".", NULL, 0);
+    //filler(buf, "..", NULL, 0);
+    log_msg("FUCK OFFF %d\n", MAX_INODES);
+    int i;
+    for (i = 0; i < 256; i++)
+    {
+        log_msg("i : %d", i);
+        if (inode_bitmap[i / 8] && 1 << (7 - (i % 8)))
+        {
+            log_msg("IN i : %d", i);
+            inode *node = &inode_list[i];
+            struct stat *statbuf = malloc(sizeof(struct stat));
+            statbuf->st_mode = node->permissions;
+            statbuf->st_nlink = node->link_count;
+            statbuf->st_uid = node->uid;
+            statbuf->st_gid = node->gid;
+            statbuf->st_ctime = node->created;
+            statbuf->st_size = node->size;
+            statbuf->st_atime = node->accessed;
+            statbuf->st_mtime = node->modified;
+
+            filler(buf, get_file_name(node->path), statbuf, 0);
+        }
+    }
+
+    log_msg("Done reading directory....\n");
     return retstat;
 }
 
