@@ -566,16 +566,14 @@ int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offse
     log_msg("Reading directory......\n");
 
     //fill for the buffer
-    //filler(buf, ".", NULL, 0);
-    //filler(buf, "..", NULL, 0);
-    log_msg("FUCK OFFF %d\n", MAX_INODES);
-    int i;
-    for (i = 0; i < 256; i++)
+    filler(buf, ".", NULL, 0);
+    filler(buf, "..", NULL, 0);
+    int i = 0;
+
+    for (; i < MAX_INODES; i++)
     {
-        log_msg("i : %d", i);
-        if (inode_bitmap[i / 8] && 1 << (7 - (i % 8)))
+        if (inode_bitmap[i / 8] & 1 << (7 - (i % 8)))
         {
-            log_msg("IN i : %d", i);
             inode *node = &inode_list[i];
             struct stat *statbuf = malloc(sizeof(struct stat));
             statbuf->st_mode = node->permissions;
