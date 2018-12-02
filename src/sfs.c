@@ -33,7 +33,7 @@
  * User defined data-structures
  */
 #define BOOT_IDENTIFIER "U2Pn1KJCO4sVzNZuSxzGcVDP1YbULrAgxr0WKOZQncW4N3ETktEyjn9QTfypJNaJ5LYHUl2pI5YORqubjsPuopJVojWcPPq15L282kdczm8MLO7pEyiTYHIQqLnCnRUECYV1aQ82YHayHPgVuBXKhxaM2qdpfR9kcAi2MnYM8c3HKOSThVdaxyhGwtCnG8qxwPhyDRusYynVUqtgQotbUix2cTSi3v0VIB9seSxwgq1U2InEwHSQS"
-#define MAX_BLOCKS 33
+#define MAX_BLOCKS 34
 #define MAX_PATH 64
 #define MAX_INODES 256
 #define DISK_SIZE 16 * 1024 * 1024
@@ -42,7 +42,7 @@ typedef unsigned int uint;
 typedef struct inode
 {
     mode_t permissions;
-    uint is_dir : 1; //0-> file, 1-> directory
+//    uint is_dir : 1; //0-> file, 1-> directory
     long created, modified, accessed;
     uint link_count;
     uint size;
@@ -196,7 +196,7 @@ void *sfs_init(struct fuse_conn_info *conn)
 {
     fprintf(stderr, "in bb-init\n");
     log_msg("\nsfs_init()\n");
-
+    log_msg("Size of inode : %d\n", sizeof(inode));
     log_conn(conn);
     log_fuse_context(fuse_get_context());
 
@@ -239,7 +239,7 @@ void *sfs_init(struct fuse_conn_info *conn)
             new_inode->created = time(NULL);
             new_inode->modified = time(NULL);
             new_inode->accessed = time(NULL);
-            new_inode->is_dir = 1;
+//            new_inode->is_dir = 1;
             new_inode->gid = getegid();
             new_inode->uid = getuid();
             new_inode->link_count = 2;
@@ -252,7 +252,7 @@ void *sfs_init(struct fuse_conn_info *conn)
             in->created = time(NULL);
             in->modified = time(NULL);
             in->accessed = time(NULL);
-            in->is_dir = 0;
+//            in->is_dir = 0;
             in->gid = getegid();
             in->uid = getuid();
             in->link_count = 1;
@@ -382,7 +382,7 @@ int sfs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
                 node->blocks_single = NULL;
                 node->created = time(NULL);
                 node->modified = time(NULL);
-                node->is_dir = 0;
+//                node->is_dir = 0;
                 node->gid = getegid();
                 node->uid = getuid();
                 node->link_count = 1;
@@ -402,7 +402,7 @@ int sfs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
                 else
                 {
                     inode *p = &inode_list[parent_index];
-                    if (p->is_dir == 0)
+                    if (S_ISDIR(p->permissions) == 0)
                     {
                         log_msg("Parent is not a directory\n");
                         retstat = -EFAULT;
@@ -575,7 +575,7 @@ int sfs_opendir(const char *path, struct fuse_file_info *fi)
     {
         inode *node = &inode_list[index];
         //log_msg("Directory file found\n");
-        if (node->is_dir == 0)
+        if (S_ISDIR(node->permissions) == 0)
         {
             log_msg("File is not a directory\n");
             retstat = -EPERM;
