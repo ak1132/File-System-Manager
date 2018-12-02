@@ -119,7 +119,9 @@ inode *find_parent(char path[])
     if (path == NULL)
         return NULL;
 
-    int length = sizeof(path);
+    int length = strlen(path);
+
+    log_msg("Length of path %s : %d\n", path, length);
 
     if (length == 1)
         return &inode_list[0];
@@ -238,10 +240,28 @@ void *sfs_init(struct fuse_conn_info *conn)
             new_inode->link_count = 2;
             new_inode->size = 0;
 
-            set_bit(inode_bitmap, 0);
-            memcpy(&inode_list[0], new_inode, sizeof(inode));
+            inode *in = ((inode *)block_buffer) + 1;
+            strcpy(in->path, "/abc.txt");
+            in->permissions = S_IFDIR | 0755;
+            in->blocks_single = NULL;
+            in->created = time(NULL);
+            in->modified = time(NULL);
+            in->accessed = time(NULL);
+            in->is_dir = 0;
+            in->gid = getegid();
+            in->uid = getuid();
+            in->link_count = 1;
+            in->size = 0;
 
-            block_write(INODE_BLOCK_START, &inode_list);
+            set_bit(inode_bitmap, 0);
+            set_bit(inode_bitmap, 1);
+            memcpy(&inode_list[0], new_inode, sizeof(inode));
+            memcpy(&inode_list[1], in, sizeof(inode));
+
+            log_msg("Shit 2 %s\n", inode_list[1].path);
+
+            //block_write(INODE_BLOCK_START, &inode_list);
+            block_write(INODE_BLOCK_START, block_buffer);
 
             void *temp = malloc(BLOCK_SIZE);
             strcpy(temp, IDENTIFIER);
@@ -279,6 +299,7 @@ void *sfs_init(struct fuse_conn_info *conn)
 void sfs_destroy(void *userdata)
 {
     log_msg("\nsfs_destroy(userdata=0x%08x)\n", userdata);
+    disk_close();
 }
 
 /** Get file attributes.
@@ -575,17 +596,26 @@ int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offse
         if (inode_bitmap[i / 8] & 1 << (7 - (i % 8)))
         {
             inode *node = &inode_list[i];
-            struct stat *statbuf = malloc(sizeof(struct stat));
-            statbuf->st_mode = node->permissions;
-            statbuf->st_nlink = node->link_count;
-            statbuf->st_uid = node->uid;
-            statbuf->st_gid = node->gid;
-            statbuf->st_ctime = node->created;
-            statbuf->st_size = node->size;
-            statbuf->st_atime = node->accessed;
-            statbuf->st_mtime = node->modified;
+            log_msg("Inode path : %s\n", node->path);
+            log_msg("Find parent %d\n", strcmp(find_parent(node->path)->path, path));
+            log_msg("Same path : %d\n", strcmp(path, node->path));
 
-            filler(buf, get_file_name(node->path), statbuf, 0);
+            //check all children and root not equal to itself
+            if (strcmp(find_parent(node->path)->path, path) == 0 && strcmp(path, node->path) != 0)
+            {
+                log_msg("here\n");
+                struct stat *statbuf = malloc(sizeof(struct stat));
+                statbuf->st_mode = node->permissions;
+                statbuf->st_nlink = node->link_count;
+                statbuf->st_uid = node->uid;
+                statbuf->st_gid = node->gid;
+                statbuf->st_ctime = node->created;
+                statbuf->st_size = node->size;
+                statbuf->st_atime = node->accessed;
+                statbuf->st_mtime = node->modified;
+
+                filler(buf, get_file_name(node->path), statbuf, 0);
+            }
         }
     }
 
