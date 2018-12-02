@@ -95,7 +95,7 @@ char *get_file_name(char *path)
     return temp;
 }
 
-inode *find_inode(char *path)
+int find_inode(char *path)
 {
     int i;
 
@@ -106,15 +106,15 @@ inode *find_inode(char *path)
             if (strcmp(inode_list[i].path, path) == 0)
             {
                 log_msg("File found %s\n", path);
-                return &inode_list[i];
+                return i;
             }
         }
     }
 
-    return NULL;
+    return -1;
 }
 
-inode *find_parent(char path[])
+int find_parent(char path[])
 {
     int length = strlen(path);
     if (path == NULL || length == 0)
@@ -127,7 +127,7 @@ inode *find_parent(char path[])
 
     int i;
     char parent[MAX_PATH];
-    inode *p;
+    int p;
     for (i = length - 1; i >= 0; i--)
     {
         if (path[i] == '/')
@@ -241,7 +241,7 @@ void *sfs_init(struct fuse_conn_info *conn)
 
             inode *in = ((inode *)block_buffer) + 1;
             strcpy(in->path, "/abc.txt");
-            in->permissions = S_IFDIR | 0755;
+            in->permissions = S_IFREG | 0644;
             in->blocks_single = NULL;
             in->created = time(NULL);
             in->modified = time(NULL);
@@ -315,10 +315,11 @@ int sfs_getattr(const char *path, struct stat *statbuf)
 
     memset(statbuf, 0, sizeof(struct stat));
 
-    inode *node = find_inode(path);
+    int index = find_inode(path);
 
-    if (node != NULL)
+    if (index >= 0)
     {
+        inode *node = &inode_list[index];
         statbuf->st_mode = node->permissions;
         statbuf->st_nlink = node->link_count;
         statbuf->st_uid = node->uid;
@@ -331,8 +332,7 @@ int sfs_getattr(const char *path, struct stat *statbuf)
     else
     {
         log_msg("Inode with path %s not found!\n", path);
-        retstat = ENOENT;
-        return retstat;
+        retstat = -ENOENT;
     }
     return retstat;
 }
@@ -355,7 +355,7 @@ int sfs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
     log_msg("\nsfs_create(path=\"%s\", mode=0%03o, fi=0x%08x)\n",
             path, mode, fi);
 
-    if (find_inode(path) != NULL)
+    if (find_inode(path) >= 0)
     {
         log_msg("File already exists\n");
         retstat = -EEXIST;
@@ -420,6 +420,27 @@ int sfs_unlink(const char *path)
 {
     int retstat = 0;
     log_msg("sfs_unlink(path=\"%s\")\n", path);
+
+    int node_index = find_inode(path);
+    int parent_index = find_parent(path);
+
+    inode *node, *parent;
+
+    if (node_index >= 0)
+    {
+        node = &inode_list[node_index];
+        parent = &inode_list[parent_index];
+    }
+
+    if (strcmp(node->path, parent->path) != 0)
+    {
+        unset_bit(inode_bitmap, node_index);
+        parent->link_count--;
+        node->size = 0;
+        uint block_links[] = node->blocks;
+
+        //TO_DO traverse blocks and unset data bitmap
+    }
 
     return retstat;
 }
@@ -537,10 +558,11 @@ int sfs_opendir(const char *path, struct fuse_file_info *fi)
     log_msg("\nsfs_opendir(path=\"%s\", fi=0x%08x)\n",
             path, fi);
 
-    inode *node = find_inode(path);
+    int index = find_inode(path);
 
-    if (node != NULL)
+    if (index >= 0)
     {
+        inode *node = &inode_list[index];
         log_msg("Directory file found\n");
         if (node->is_dir == 0)
         {
@@ -581,7 +603,6 @@ int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offse
                 struct fuse_file_info *fi)
 {
     int retstat = 0;
-
     log_msg("Reading directory......\n");
 
     //fill for the buffer
@@ -594,15 +615,13 @@ int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offse
         if (inode_bitmap[i / 8] & 1 << (7 - (i % 8)))
         {
             inode *node = &inode_list[i];
+            int parent_index = find_parent(node->path);
 
-            log_msg("Node path %s\n", node->path);
-            log_msg("Find parent %s\n", find_parent(node->path)->path);
-            log_msg("Path : %s\n", path);
+            inode *parent = &inode_list[parent_index];
 
             //check all children and root not equal to itself
-            if (strcmp(find_parent(node->path)->path, path) == 0 && strcmp(path, node->path) != 0)
+            if (strcmp(parent->path, path) == 0 && strcmp(path, node->path) != 0)
             {
-                log_msg("Main hu DON!!!! %s\n", node->path);
                 struct stat *statbuf = malloc(sizeof(struct stat));
                 statbuf->st_mode = node->permissions;
                 statbuf->st_nlink = node->link_count;
@@ -612,9 +631,8 @@ int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offse
                 statbuf->st_size = node->size;
                 statbuf->st_atime = node->accessed;
                 statbuf->st_mtime = node->modified;
-                log_msg("Don me hi hu!!!! %s  %s\n", node->path, get_file_name(node->path));
+
                 filler(buf, get_file_name(node->path), statbuf, 0);
-                log_msg("Don ko pakana mushkil hi nai namumkin hai!!!! %s\n", node->path);
             }
         }
     }
