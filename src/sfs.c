@@ -32,7 +32,7 @@
 /*
  * User defined data-structures
  */
-#define IDENTIFIER "U2Pn1KJCO4sVzNZuSxzGcVDP1YbULrAgxr0WKOZQncW4N3ETktEyjn9QTfypJNaJ5LYHUl2pI5YORqubjsPuopJVojWcPPq15L282kdczm8MLO7pEyiTYHIQqLnCnRUECYV1aQ82YHayHPgVuBXKhxaM2qdpfR9kcAi2MnYM8c3HKOSThVdaxyhGwtCnG8qxwPhyDRusYynVUqtgQotbUix2cTSi3v0VIB9seSxwgq1U2InEwHSQS"
+#define BOOT_IDENTIFIER "U2Pn1KJCO4sVzNZuSxzGcVDP1YbULrAgxr0WKOZQncW4N3ETktEyjn9QTfypJNaJ5LYHUl2pI5YORqubjsPuopJVojWcPPq15L282kdczm8MLO7pEyiTYHIQqLnCnRUECYV1aQ82YHayHPgVuBXKhxaM2qdpfR9kcAi2MnYM8c3HKOSThVdaxyhGwtCnG8qxwPhyDRusYynVUqtgQotbUix2cTSi3v0VIB9seSxwgq1U2InEwHSQS"
 #define MAX_BLOCKS 33
 #define MAX_PATH 64
 #define MAX_INODES 256
@@ -206,7 +206,7 @@ void *sfs_init(struct fuse_conn_info *conn)
     if (block_read(0, block_buffer) >= 0)
     {
 
-        if (strcmp(IDENTIFIER, block_buffer) == 0)
+        if (strcmp(BOOT_IDENTIFIER, block_buffer) == 0)
         {
 
             log_msg("FS is already initialized\n");
@@ -268,7 +268,7 @@ void *sfs_init(struct fuse_conn_info *conn)
             block_write(INODE_BLOCK_START, block_buffer);
 
             void *temp = malloc(BLOCK_SIZE);
-            strcpy(temp, IDENTIFIER);
+            strcpy(temp, BOOT_IDENTIFIER);
 
             block_write(0, temp);
 
