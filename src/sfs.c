@@ -47,7 +47,7 @@ typedef struct inode
     uint link_count;
     uint size;
     uint uid, gid;
-    uint blocks[MAX_BLOCKS];
+    int blocks[MAX_BLOCKS];
     uint *blocks_single;
     char path[MAX_PATH];
 } inode; //256 bytes
@@ -118,12 +118,12 @@ int find_parent(char path[])
 {
     int length = strlen(path);
     if (path == NULL || length == 0)
-        return NULL;
+        return -1;
 
     //log_msg("Length of path %s : %d\n", path, length);
 
     if (length == 1)
-        return &inode_list[0];
+        return 0;
 
     int i;
     char parent[MAX_PATH];
@@ -384,14 +384,15 @@ int sfs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
                 node->size = 1;
 
                 //Update parent inode
-                inode *p = find_parent(path);
-                if (p == NULL)
+                int parent_index = find_parent(path);
+                if (parent_index == -1)
                 {
                     log_msg("Some shit \n");
                     retstat = -EFAULT; //TO_DO sme other fault number
                 }
                 else
                 {
+                    inode *p = &inode_list[parent_index];
                     if (p->is_dir == 0)
                     {
                         log_msg("Parent is not a directory\n");
@@ -437,7 +438,7 @@ int sfs_unlink(const char *path)
         unset_bit(inode_bitmap, node_index);
         parent->link_count--;
         node->size = 0;
-        uint block_links[] = node->blocks;
+        int *block_ptrs = node->blocks;
 
         //TO_DO traverse blocks and unset data bitmap
     }
