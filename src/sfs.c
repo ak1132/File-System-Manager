@@ -52,10 +52,6 @@ typedef struct inode
     char path[MAX_PATH];
 } inode; //256 bytes
 
-/* typedef struct superblock{
-    char identifier[256] = IDENTIFIER;
-} */
-
 #define TOTAL_BLOCKS DISK_SIZE / BLOCK_SIZE
 #define INODE_BITMAP_START 1
 #define DATA_BITMAP_START 2
@@ -105,7 +101,7 @@ int find_inode(char *path)
         {
             if (strcmp(inode_list[i].path, path) == 0)
             {
-                log_msg("File found %s\n", path);
+                //log_msg("File found %s\n", path);
                 return i;
             }
         }
@@ -120,28 +116,37 @@ int find_parent(char path[])
     if (path == NULL || length == 0)
         return -1;
 
-    //log_msg("Length of path %s : %d\n", path, length);
-
     if (length == 1)
         return 0;
 
     int i;
     char parent[MAX_PATH];
-    int p;
+    int p = -1;
     for (i = length - 1; i >= 0; i--)
     {
         if (path[i] == '/')
         {
+            p = 0;
             break;
         }
+    }
+
+    if (p == -1)
+    {
+        log_msg("Super shit \n");
+        return -1;
     }
 
     if (i >= 0)
     {
         strncpy(parent, path, i + 1);
-        p = find_inode(parent);
+        log_msg("Found parent at %s at %d\n", parent, i);
+        if (find_inode(parent) > -1)
+        {
+            return i;
+        }
     }
-    return p;
+    return -1;
 }
 
 int get_first_unset_bit(char bitmap[])
@@ -205,6 +210,7 @@ void *sfs_init(struct fuse_conn_info *conn)
         {
 
             log_msg("FS is already initialized\n");
+
             block_read(INODE_BITMAP_START, inode_bitmap);
 
             int j;
@@ -331,7 +337,7 @@ int sfs_getattr(const char *path, struct stat *statbuf)
     }
     else
     {
-        log_msg("Inode with path %s not found!\n", path);
+        //log_msg("Inode with path %s not found!\n", path);
         retstat = -ENOENT;
     }
     return retstat;
@@ -383,11 +389,14 @@ int sfs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
                 node->blocks[0] = free_block;
                 node->size = 1;
 
+                set_bit(data_bitmap, free_block);
+                set_bit(inode_bitmap, free_inode);
+
                 //Update parent inode
                 int parent_index = find_parent(path);
                 if (parent_index == -1)
                 {
-                    log_msg("Some shit \n");
+                    log_msg("Some shit at index %d\n", parent_index);
                     retstat = -EFAULT; //TO_DO sme other fault number
                 }
                 else
@@ -406,6 +415,7 @@ int sfs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
                 log_msg("Out of INODES\n");
                 retstat = -EFAULT;
             }
+            log_msg("File %s created\n", path);
         }
         else
         {
@@ -564,7 +574,7 @@ int sfs_opendir(const char *path, struct fuse_file_info *fi)
     if (index >= 0)
     {
         inode *node = &inode_list[index];
-        log_msg("Directory file found\n");
+        //log_msg("Directory file found\n");
         if (node->is_dir == 0)
         {
             log_msg("File is not a directory\n");
@@ -604,7 +614,6 @@ int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offse
                 struct fuse_file_info *fi)
 {
     int retstat = 0;
-    log_msg("Reading directory......\n");
 
     //fill for the buffer
     filler(buf, ".", NULL, 0);
@@ -637,8 +646,6 @@ int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offse
             }
         }
     }
-
-    log_msg("Done reading directory....\n");
     return retstat;
 }
 
