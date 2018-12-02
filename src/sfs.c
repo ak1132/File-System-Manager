@@ -34,7 +34,7 @@
  */
 #define IDENTIFIER "U2Pn1KJCO4sVzNZuSxzGcVDP1YbULrAgxr0WKOZQncW4N3ETktEyjn9QTfypJNaJ5LYHUl2pI5YORqubjsPuopJVojWcPPq15L282kdczm8MLO7pEyiTYHIQqLnCnRUECYV1aQ82YHayHPgVuBXKhxaM2qdpfR9kcAi2MnYM8c3HKOSThVdaxyhGwtCnG8qxwPhyDRusYynVUqtgQotbUix2cTSi3v0VIB9seSxwgq1U2InEwHSQS"
 #define MAX_BLOCKS 33
-#define MAX_PATH 128
+#define MAX_PATH 64
 #define MAX_INODES 256
 #define DISK_SIZE 16 * 1024 * 1024
 typedef unsigned int uint;
@@ -86,7 +86,7 @@ char *get_file_name(char *path)
             break;
     }
     char *temp;
-    if (i > 0)
+    if (i >= 0)
     {
         temp = malloc(len - i);
         memcpy(temp, path + i + 1, len - i);
@@ -116,12 +116,11 @@ inode *find_inode(char *path)
 
 inode *find_parent(char path[])
 {
-    if (path == NULL)
+    int length = strlen(path);
+    if (path == NULL || length == 0)
         return NULL;
 
-    int length = strlen(path);
-
-    log_msg("Length of path %s : %d\n", path, length);
+    //log_msg("Length of path %s : %d\n", path, length);
 
     if (length == 1)
         return &inode_list[0];
@@ -137,7 +136,7 @@ inode *find_parent(char path[])
         }
     }
 
-    if (i > 0)
+    if (i >= 0)
     {
         strncpy(parent, path, i + 1);
         p = find_inode(parent);
@@ -255,10 +254,9 @@ void *sfs_init(struct fuse_conn_info *conn)
 
             set_bit(inode_bitmap, 0);
             set_bit(inode_bitmap, 1);
+
             memcpy(&inode_list[0], new_inode, sizeof(inode));
             memcpy(&inode_list[1], in, sizeof(inode));
-
-            log_msg("Shit 2 %s\n", inode_list[1].path);
 
             //block_write(INODE_BLOCK_START, &inode_list);
             block_write(INODE_BLOCK_START, block_buffer);
@@ -596,14 +594,15 @@ int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offse
         if (inode_bitmap[i / 8] & 1 << (7 - (i % 8)))
         {
             inode *node = &inode_list[i];
-            log_msg("Inode path : %s\n", node->path);
-            log_msg("Find parent %d\n", strcmp(find_parent(node->path)->path, path));
-            log_msg("Same path : %d\n", strcmp(path, node->path));
+
+            log_msg("Node path %s\n", node->path);
+            log_msg("Find parent %s\n", find_parent(node->path)->path);
+            log_msg("Path : %s\n", path);
 
             //check all children and root not equal to itself
             if (strcmp(find_parent(node->path)->path, path) == 0 && strcmp(path, node->path) != 0)
             {
-                log_msg("here\n");
+                log_msg("Main hu DON!!!! %s\n", node->path);
                 struct stat *statbuf = malloc(sizeof(struct stat));
                 statbuf->st_mode = node->permissions;
                 statbuf->st_nlink = node->link_count;
@@ -613,8 +612,9 @@ int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offse
                 statbuf->st_size = node->size;
                 statbuf->st_atime = node->accessed;
                 statbuf->st_mtime = node->modified;
-
+                log_msg("Don me hi hu!!!! %s  %s\n", node->path, get_file_name(node->path));
                 filler(buf, get_file_name(node->path), statbuf, 0);
+                log_msg("Don ko pakana mushkil hi nai namumkin hai!!!! %s\n", node->path);
             }
         }
     }
