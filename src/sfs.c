@@ -196,7 +196,7 @@ void *sfs_init(struct fuse_conn_info *conn)
 {
     fprintf(stderr, "in bb-init\n");
     log_msg("\nsfs_init()\n");
-    log_msg("Size of inode : %d\n", sizeof(inode));
+
     log_conn(conn);
     log_fuse_context(fuse_get_context());
 
@@ -239,32 +239,13 @@ void *sfs_init(struct fuse_conn_info *conn)
             new_inode->created = time(NULL);
             new_inode->modified = time(NULL);
             new_inode->accessed = time(NULL);
-//            new_inode->is_dir = 1;
             new_inode->gid = getegid();
             new_inode->uid = getuid();
             new_inode->link_count = 2;
             new_inode->size = 0;
 
-            inode *in = ((inode *)block_buffer) + 1;
-            strcpy(in->path, "/abc.txt");
-            in->permissions = S_IFREG | 0644;
-            in->blocks_single = NULL;
-            in->created = time(NULL);
-            in->modified = time(NULL);
-            in->accessed = time(NULL);
-//            in->is_dir = 0;
-            in->gid = getegid();
-            in->uid = getuid();
-            in->link_count = 1;
-            in->size = 0;
-
             set_bit(inode_bitmap, 0);
-            set_bit(inode_bitmap, 1);
-
             memcpy(&inode_list[0], new_inode, sizeof(inode));
-            memcpy(&inode_list[1], in, sizeof(inode));
-
-            //block_write(INODE_BLOCK_START, &inode_list);
             block_write(INODE_BLOCK_START, block_buffer);
 
             void *temp = malloc(BLOCK_SIZE);
