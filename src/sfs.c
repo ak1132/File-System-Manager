@@ -437,7 +437,7 @@ int sfs_unlink(const char *path)
         node = &inode_list[node_index];
         parent = &inode_list[parent_index];
 
-        log_msg("Unlink : file permissions: %d\n", node->permissions);
+        log_msg("Unlink : file permissions: %d\n", S_ISREG(node->permissions));
 
         if(S_ISREG(node->permissions) != 0) {
             if (strcmp(node->path, parent->path) != 0) {
@@ -533,16 +533,19 @@ int sfs_read(const char *path, char *buf, size_t size, off_t offset, struct fuse
     char *buf_offset = buf;
     int total_size_read = 0, size_to_read = 0;
     int curr_block = start_block;
+
     log_msg("offset: %d  size: %d   node->size: %d\n", offset, size, node->size);
-    if((offset + size) > node->size){
-        log_msg("sfs_read : Reading more than the file size : %s\n", path);
-        retstat = -EPERM;
+    if(offset > node->size){
+        retstat = -EFAULT;
+        log_msg("sfs_read : Offset more than file size\n");
         return retstat;
+    }else if((offset + size) > node->size){
+        log_msg("sfs_read : Resting size from %d to %d\n", size, node->size);
+        size = node->size - offset;
     }
 
     void *block_buffer = malloc(BLOCK_SIZE);
     for(; total_size_read < size;curr_block++) {
-
 
         if (offset == 0) {
             size_to_read = BLOCK_SIZE;
@@ -558,6 +561,7 @@ int sfs_read(const char *path, char *buf, size_t size, off_t offset, struct fuse
             memset(block_buffer, '0', BLOCK_SIZE);
         }
 
+        log_msg("Reading from block : %d\n", node->blocks[curr_block]);
         block_read(node->blocks[curr_block], block_buffer);
 
         memcpy(buf_offset, block_buffer + offset, size_to_read);
@@ -588,6 +592,7 @@ int sfs_read(const char *path, char *buf, size_t size, off_t offset, struct fuse
     }
 
     free(block_buffer);
+    retstat = total_size_read;
     return retstat;
 }
 
@@ -608,26 +613,31 @@ int sfs_write(const char *path, const char *buf, size_t size, off_t offset,
 
     int node_index = find_inode(path);
     inode *node = &inode_list[node_index];
-
-    if((offset + size) > node->size){
-        node->size = offset + size;
-    }
+    int orig_offset = offset;
 
     int start_block = offset/BLOCK_SIZE;
     offset = offset % BLOCK_SIZE;
     char *buf_offset = buf;
-    int total_size_read = 0, size_to_write = 0;
+    int total_size_written = 0, size_to_write = 0;
     int curr_block = start_block;
     void *block_buffer = malloc(BLOCK_SIZE);
+
     int file_max_blocks = node->size / BLOCK_SIZE;
-    for(; total_size_read < size;curr_block++) {
+    int free_block;
+
+    log_msg("total_size_read : %d   size : %d\n", total_size_written, size);
+    //TODO : Put limit on curr_block
+    for(; total_size_written < size;curr_block++) {
 
         if(curr_block > file_max_blocks){
-            int free_block = get_first_unset_bit(data_bitmap);
+            free_block = get_first_unset_bit(data_bitmap);
+            log_msg("Free_block : %d %ud", free_block, free_block);
             if(free_block > -1){
                 set_bit(data_bitmap, free_block);
                 block_write(DATA_BITMAP_START + free_block/BLOCK_SIZE, data_bitmap + free_block/BLOCK_SIZE * BLOCK_SIZE);
                 node->blocks[curr_block] = free_block;
+                block_write(INODE_BLOCK_START + node_index/2, &inode_list[(node_index/2) * 2]);
+
                 file_max_blocks++;
             }else{
                 log_msg("sfs_write : Disk out of memory\n");
@@ -636,29 +646,40 @@ int sfs_write(const char *path, const char *buf, size_t size, off_t offset,
             }
         }
 
+        log_msg("Writing in block : %d\n", node->blocks[curr_block]);
+
         if (offset == 0) {
             size_to_write = BLOCK_SIZE;
         } else {
             size_to_write = BLOCK_SIZE - offset + 1;
         }
 
-        if ((size - total_size_read) <= size_to_write) {
-            size_to_write = size - total_size_read;
+        if ((size - total_size_written) <= size_to_write) {
+            size_to_write = size - total_size_written;
         }
 
         if (size_to_write != BLOCK_SIZE) {
             block_read(node->blocks[curr_block], block_buffer);
         }
 
-        memcpy(buf_offset, block_buffer + offset, size_to_write);
+        log_msg("memcpy : block_buffer + offset: %d, buf_offset: %d, size_to_write: %d\n", block_buffer + offset, buf_offset, size_to_write);
+        memcpy(block_buffer + offset, buf_offset, size_to_write);
+        log_msg("block_write: node->blocks[curr_block]: %d, block_buffer: %d\n", node->blocks[curr_block], block_buffer);
         block_write(node->blocks[curr_block], block_buffer);
 
-        total_size_read += size_to_write;
-        buf_offset = buf + total_size_read;
+        total_size_written += size_to_write;
+        buf_offset = buf + total_size_written;
         offset = 0;
     }
 
     free(block_buffer);
+    retstat = total_size_written;
+
+    log_msg("Updating size: (offset + size): %d   node->size: %d\n", (offset + size),  node->size);
+    if((orig_offset + size) > node->size){
+        node->size = orig_offset + size;
+    }
+
     return retstat;
 }
 
@@ -740,6 +761,11 @@ int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offse
                 struct fuse_file_info *fi)
 {
     int retstat = 0;
+
+    if(find_inode(path) < 0){
+        retstat = -ENOENT;
+        return retstat
+    }
 
     //fill for the buffer
     filler(buf, ".", NULL, 0);
