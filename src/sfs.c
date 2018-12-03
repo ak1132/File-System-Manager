@@ -166,17 +166,6 @@ int get_first_unset_bit(char bitmap[])
         }
     }
 
-//    int i, j;
-//    int length = sizeof(bitmap);
-//    for (i = 0; i < length; i++) {
-//        for (j = 1; j <= 8; j++) {
-//            if(!(bitmap[i] & (1<<(j-1)))) {
-//                log_msg("\nDEBUG: CLEAR BIT FOUND AT INDEX: %d POSITION: %d\n",i,j-1);
-//                return ((i*8)+(j-1));
-//            }
-//        }
-//    }
-
     return -1;
 }
 
@@ -184,17 +173,9 @@ void set_bit(char bitmap[], int index)
 {
     int map_index = index / 8;
     log_msg("Setting index: %d\n", index);
-    log_msg("Setting index: Before : %d\n", bitmap[map_index]);
 
     int shift = index % 8;
     bitmap[map_index] |= (1 << (7 - shift));
-    log_msg("Setting index: After : %d\n", bitmap[map_index]);
-
-//    unsigned int bit_indx, shift_indx;
-//    bit_indx = (index)/8;
-//    shift_indx = (index)%8;
-//    log_msg("\nDEBUG: SETTING BIT INDEX: %d POSITION: %d\n",bit_indx,shift_indx);
-//    bitmap[bit_indx] = bitmap[bit_indx] | 1<<shift_indx;
 }
 
 void unset_bit(char bitmap[], int index)
@@ -203,11 +184,6 @@ void unset_bit(char bitmap[], int index)
     int shift = index % 8;
     bitmap[map_index] &= ~(1 << (7 - shift));
 
-//    unsigned int bit_indx, shift_indx;
-//    bit_indx = (index)/8;
-//    shift_indx = (index)%8;
-//    log_msg("\nDEBUG: CLEARING BI T INDEX: %d POSITION: %d\n",bit_indx,shift_indx);
-//    bitmap[bit_indx] &= ~(1<<shift_indx);
 }
 
 /**
@@ -267,32 +243,13 @@ void *sfs_init(struct fuse_conn_info *conn)
             new_inode->created = time(NULL);
             new_inode->modified = time(NULL);
             new_inode->accessed = time(NULL);
-//            new_inode->is_dir = 1;
             new_inode->gid = getegid();
             new_inode->uid = getuid();
             new_inode->link_count = 2;
             new_inode->size = 0;
 
-            inode *in = ((inode *)block_buffer) + 1;
-            strcpy(in->path, "/abc.txt");
-            in->permissions = S_IFREG | 0644;
-            in->blocks_single = NULL;
-            in->created = time(NULL);
-            in->modified = time(NULL);
-            in->accessed = time(NULL);
-//            in->is_dir = 0;
-            in->gid = getegid();
-            in->uid = getuid();
-            in->link_count = 1;
-            in->size = 0;
-
             set_bit(inode_bitmap, 0);
-            set_bit(inode_bitmap, 1);
-
             memcpy(&inode_list[0], new_inode, sizeof(inode));
-            memcpy(&inode_list[1], in, sizeof(inode));
-
-            //block_write(INODE_BLOCK_START, &inode_list);
             block_write(INODE_BLOCK_START, block_buffer);
 
             void *temp = malloc(BLOCK_SIZE);
@@ -411,7 +368,6 @@ int sfs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
                 node->blocks_single = NULL;
                 node->created = time(NULL);
                 node->modified = time(NULL);
-//                node->is_dir = 0;
                 node->gid = getegid();
                 node->uid = getuid();
                 node->link_count = 1;
@@ -477,20 +433,34 @@ int sfs_unlink(const char *path)
 
     inode *node, *parent;
 
-    if (node_index >= 0)
-    {
+    if (node_index >= 0) {
         node = &inode_list[node_index];
         parent = &inode_list[parent_index];
-    }
 
-    if (strcmp(node->path, parent->path) != 0)
-    {
-        unset_bit(inode_bitmap, node_index);
-        parent->link_count--;
-        node->size = 0;
-        int *block_ptrs = node->blocks;
+        log_msg("Unlink : file permissions: %d\n", node->permissions);
 
-        //TO_DO traverse blocks and unset data bitmap
+        if(S_ISREG(node->permissions) != 0) {
+            if (strcmp(node->path, parent->path) != 0) {
+                unset_bit(inode_bitmap, node_index);
+                block_write(INODE_BLOCK_START, inode_bitmap);
+
+                parent->link_count--;
+                int x, curr_data_block;
+                for(x = 0; x < node->size; x++){
+                    curr_data_block = (node->blocks)[x];
+                    unset_bit(data_bitmap, curr_data_block);
+                    block_write(DATA_BLOCK_START + curr_data_block/BLOCK_SIZE, data_bitmap + curr_data_block/BLOCK_SIZE);
+                }
+
+            }else{
+                log_msg("Cannot delete Root\n");
+            }
+        }else{
+            log_msg("Not a File : %s\n", path);
+        }
+
+    }else{
+        log_msg("Inode not found\n");
     }
 
     return retstat;
