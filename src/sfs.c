@@ -160,19 +160,41 @@ int get_first_unset_bit(char bitmap[])
             if (!(bitmap[i] & (1 << (8 - j))))
             {
                 log_msg("\nclear bit found at (%d,%d) %d\n",
-                        i, j);
-                return ((i * 8) + j);
+                        i, j - 1);
+                return ((i * 8) + j - 1);
             }
         }
     }
+
+//    int i, j;
+//    int length = sizeof(bitmap);
+//    for (i = 0; i < length; i++) {
+//        for (j = 1; j <= 8; j++) {
+//            if(!(bitmap[i] & (1<<(j-1)))) {
+//                log_msg("\nDEBUG: CLEAR BIT FOUND AT INDEX: %d POSITION: %d\n",i,j-1);
+//                return ((i*8)+(j-1));
+//            }
+//        }
+//    }
+
     return -1;
 }
 
 void set_bit(char bitmap[], int index)
 {
     int map_index = index / 8;
+    log_msg("Setting index: %d\n", index);
+    log_msg("Setting index: Before : %d\n", bitmap[map_index]);
+
     int shift = index % 8;
     bitmap[map_index] |= (1 << (7 - shift));
+    log_msg("Setting index: After : %d\n", bitmap[map_index]);
+
+//    unsigned int bit_indx, shift_indx;
+//    bit_indx = (index)/8;
+//    shift_indx = (index)%8;
+//    log_msg("\nDEBUG: SETTING BIT INDEX: %d POSITION: %d\n",bit_indx,shift_indx);
+//    bitmap[bit_indx] = bitmap[bit_indx] | 1<<shift_indx;
 }
 
 void unset_bit(char bitmap[], int index)
@@ -180,6 +202,12 @@ void unset_bit(char bitmap[], int index)
     int map_index = index / 8;
     int shift = index % 8;
     bitmap[map_index] &= ~(1 << (7 - shift));
+
+//    unsigned int bit_indx, shift_indx;
+//    bit_indx = (index)/8;
+//    shift_indx = (index)%8;
+//    log_msg("\nDEBUG: CLEARING BI T INDEX: %d POSITION: %d\n",bit_indx,shift_indx);
+//    bitmap[bit_indx] &= ~(1<<shift_indx);
 }
 
 /**
@@ -358,6 +386,7 @@ int sfs_getattr(const char *path, struct stat *statbuf)
 int sfs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 {
     int retstat = 0;
+
     log_msg("\nsfs_create(path=\"%s\", mode=0%03o, fi=0x%08x)\n",
             path, mode, fi);
 
@@ -389,8 +418,11 @@ int sfs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
                 node->blocks[0] = free_block;
                 node->size = 1;
 
-                set_bit(data_bitmap, free_block);
+                log_msg("Setting inode_bitmap\n");
                 set_bit(inode_bitmap, free_inode);
+                log_msg("Setting data_bitmap\n");
+                set_bit(data_bitmap, free_block);
+
 
                 //Update parent inode
                 int parent_index = find_parent(path);
@@ -398,6 +430,7 @@ int sfs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
                 {
                     log_msg("Some shit at index %d\n", parent_index);
                     retstat = -EFAULT; //TO_DO sme other fault number
+                    return retstat;
                 }
                 else
                 {
@@ -406,14 +439,21 @@ int sfs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
                     {
                         log_msg("Parent is not a directory\n");
                         retstat = -EFAULT;
+                        return retstat;
                     }
                     p->link_count++;
                 }
+
+                block_write(INODE_BITMAP_START, inode_bitmap);
+                block_write(DATA_BITMAP_START + free_block/BLOCK_SIZE, data_bitmap + free_block/BLOCK_SIZE * BLOCK_SIZE);
+                block_write(INODE_BLOCK_START + free_inode/2, &inode_list[(free_inode/2)*2]);
+                block_write(INODE_BLOCK_START + parent_index/2, &inode_list[(parent_index/2)*2]);
             }
             else
             {
                 log_msg("Out of INODES\n");
                 retstat = -EFAULT;
+                return retstat;
             }
             log_msg("File %s created\n", path);
         }
