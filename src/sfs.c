@@ -176,46 +176,6 @@ int find_parent(char path[])
 }
 
 
-//
-//int find_parent(char path[])
-//{
-//    int length = strlen(path);
-//    if (path == NULL || length == 0)
-//        return -1;
-//
-//    if (length == 1)
-//        return 0;
-//
-//    int i;
-//    char parent[MAX_PATH];
-//    int p = -1;
-//    for (i = length - 1; i >= 0; i--)
-//    {
-//        if (path[i] == '/')
-//        {
-//            p = 0;
-//            break;
-//        }
-//    }
-//
-//    if (p == -1)
-//    {
-//        //log_msg("Some weird shit \n");
-//        return -1;
-//    }
-//
-//    if (i >= 0)
-//    {
-//        strncpy(parent, path, i + 1);
-//        log_msg("Found parent at %s at %d\n", parent, i);
-//        if (find_inode(parent) > -1)
-//        {
-//            return i;
-//        }
-//    }
-//    return -1;
-//}
-
 void print_inode()
 {
     int i, j;
@@ -684,6 +644,10 @@ int sfs_read(const char *path, char *buf, size_t size, off_t offset, struct fuse
         offset = 0;
     }
 
+    // Update accessed Time
+//    node->accessed = time(NULL);
+//    block_write(INODE_BLOCK_START + node_index / 2, &inode_list[(node_index / 2) * 2]);
+
     free(block_buffer);
     retstat = total_size_read;
     return retstat;
@@ -785,6 +749,9 @@ int sfs_write(const char *path, const char *buf, size_t size, off_t offset,
         node->size = orig_offset + size;
     }
 
+    // Update accessed and modified Time
+//    node->accessed = time(NULL);
+//    node->modified = time(NULL);
     block_write(INODE_BLOCK_START + node_index / 2, &inode_list[(node_index / 2) * 2]);
 
     //    print_inode();
