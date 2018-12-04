@@ -832,11 +832,11 @@ int sfs_rmdir(const char *path)
     if(dir_index > -1){
         inode *dir = &inode_list[dir_index];
 
-        if(S_ISDIR(dir->mode) == 0){
+        if(S_ISDIR(dir->mode) != 0){
 
             if(dir->link_count > 2){
                 log_msg("Directory contains files deletion aborted\n");
-                return -EFAULT;
+                return -EPERM;
             }
 
             unset_bit(inode_bitmap,dir_index);
