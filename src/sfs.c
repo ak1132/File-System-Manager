@@ -149,6 +149,27 @@ int find_parent(char path[])
     return -1;
 }
 
+void print_inode(){
+    int i,j;
+
+    char *block_buf = malloc(BLOCK_SIZE);
+    block_read(INODE_BITMAP_START,block_buf);
+
+
+    for (i = 0; i < 32; i++)
+    {
+        for (j = 1; j <= 8; j++)
+        {
+            if (!(block_buf[i] & (1 << (8 - j))))
+            {
+                log_msg("0");
+            }else
+                log_msg("1");
+        }
+        log_msg("\n");
+    }
+}
+
 int get_first_unset_bit(char bitmap[])
 {
     int i, j;
@@ -159,8 +180,8 @@ int get_first_unset_bit(char bitmap[])
         {
             if (!(bitmap[i] & (1 << (8 - j))))
             {
-                log_msg("\nclear bit found at (%d,%d) %d\n",
-                        i, j - 1);
+//                log_msg("\nclear bit found at (%d,%d) %d\n",
+//                        i, j - 1);
                 return ((i * 8) + j - 1);
             }
         }
@@ -172,7 +193,7 @@ int get_first_unset_bit(char bitmap[])
 void set_bit(char bitmap[], int index)
 {
     int map_index = index / 8;
-    log_msg("Setting index: %d\n", index);
+//    log_msg("Setting index: %d\n", index);
 
     int shift = index % 8;
     bitmap[map_index] |= (1 << (7 - shift));
@@ -246,7 +267,7 @@ void *sfs_init(struct fuse_conn_info *conn)
             new_inode->gid = getegid();
             new_inode->uid = getuid();
             new_inode->link_count = 2;
-            new_inode->size = -1;
+            new_inode->size = 10;
 
             set_bit(inode_bitmap, 0);
             memcpy(&inode_list[0], new_inode, sizeof(inode));
@@ -288,6 +309,7 @@ void *sfs_init(struct fuse_conn_info *conn)
 void sfs_destroy(void *userdata)
 {
     log_msg("\nsfs_destroy(userdata=0x%08x)\n", userdata);
+//    print_inode();
     disk_close();
 }
 
@@ -374,9 +396,9 @@ int sfs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
                 node->blocks[0] = free_block;
                 node->size = 0;
 
-                log_msg("Setting inode_bitmap\n");
+//                log_msg("Setting inode_bitmap\n");
                 set_bit(inode_bitmap, free_inode);
-                log_msg("Setting data_bitmap\n");
+//                log_msg("Setting data_bitmap\n");
                 set_bit(data_bitmap, free_block);
 
 
@@ -400,10 +422,14 @@ int sfs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
                     p->link_count++;
                 }
 
+//                void *block_buffer = malloc(BLOCK_SIZE);
+//                memset(block_buffer, '0', BLOCK_SIZE);
+//                memcpy(block_buffer, inode_bitmap, MAX_INODES / 8);
                 block_write(INODE_BITMAP_START, inode_bitmap);
                 block_write(DATA_BITMAP_START + free_block/BLOCK_SIZE, data_bitmap + free_block/BLOCK_SIZE * BLOCK_SIZE);
                 block_write(INODE_BLOCK_START + free_inode/2, &inode_list[(free_inode/2)*2]);
                 block_write(INODE_BLOCK_START + parent_index/2, &inode_list[(parent_index/2)*2]);
+//                free(block_buffer);
             }
             else
             {
@@ -411,13 +437,15 @@ int sfs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
                 retstat = -EFAULT;
                 return retstat;
             }
-            log_msg("File %s created\n", path);
+//            log_msg("File %s created\n", path);
         }
         else
         {
             retstat = -ENOMEM; //Disk out of memory
         }
     }
+
+//    print_inode();
 
     return retstat;
 }
@@ -461,6 +489,7 @@ int sfs_unlink(const char *path)
 
     }else{
         log_msg("Inode not found\n");
+        retstat = -ENOENT;
     }
 
     return retstat;
@@ -562,7 +591,7 @@ int sfs_read(const char *path, char *buf, size_t size, off_t offset, struct fuse
         }
 
         log_msg("Reading from block : %d\n", node->blocks[curr_block]);
-        block_read(node->blocks[curr_block], block_buffer);
+        block_read(DATA_BLOCK_START + node->blocks[curr_block], block_buffer);
 
         memcpy(buf_offset, block_buffer + offset, size_to_read);
 
@@ -607,6 +636,8 @@ int sfs_read(const char *path, char *buf, size_t size, off_t offset, struct fuse
 int sfs_write(const char *path, const char *buf, size_t size, off_t offset,
               struct fuse_file_info *fi)
 {
+//    print_inode();
+
     int retstat = 0;
     log_msg("\nsfs_write(path=\"%s\", buf=0x%08x, size=%d, offset=%lld, fi=0x%08x)\n",
             path, buf, size, offset, fi);
@@ -636,7 +667,7 @@ int sfs_write(const char *path, const char *buf, size_t size, off_t offset,
                 set_bit(data_bitmap, free_block);
                 block_write(DATA_BITMAP_START + free_block/BLOCK_SIZE, data_bitmap + free_block/BLOCK_SIZE * BLOCK_SIZE);
                 node->blocks[curr_block] = free_block;
-                block_write(INODE_BLOCK_START + node_index/2, &inode_list[(node_index/2) * 2]);
+//                block_write(INODE_BLOCK_START + node_index/2, &inode_list[(node_index/2) * 2]);
 
                 file_max_blocks++;
             }else{
@@ -646,7 +677,7 @@ int sfs_write(const char *path, const char *buf, size_t size, off_t offset,
             }
         }
 
-        log_msg("Writing in block : %d\n", node->blocks[curr_block]);
+        log_msg("Writing in block : %d\n", DATA_BLOCK_START + node->blocks[curr_block]);
 
         if (offset == 0) {
             size_to_write = BLOCK_SIZE;
@@ -659,26 +690,34 @@ int sfs_write(const char *path, const char *buf, size_t size, off_t offset,
         }
 
         if (size_to_write != BLOCK_SIZE) {
-            block_read(node->blocks[curr_block], block_buffer);
+            block_read(DATA_BLOCK_START + node->blocks[curr_block], block_buffer);
         }
 
-        log_msg("memcpy : block_buffer + offset: %d, buf_offset: %d, size_to_write: %d\n", block_buffer + offset, buf_offset, size_to_write);
+//        log_msg("memcpy : block_buffer + offset: %d, buf_offset: %d, size_to_write: %d\n", block_buffer + offset, buf_offset, size_to_write);
         memcpy(block_buffer + offset, buf_offset, size_to_write);
-        log_msg("block_write: node->blocks[curr_block]: %d, block_buffer: %d\n", node->blocks[curr_block], block_buffer);
-        block_write(node->blocks[curr_block], block_buffer);
+//        log_msg("block_write: node->blocks[curr_block]: %d, block_buffer: %d\n", node->blocks[curr_block], block_buffer);
+        block_write(DATA_BLOCK_START + node->blocks[curr_block], block_buffer);
 
         total_size_written += size_to_write;
         buf_offset = buf + total_size_written;
         offset = 0;
     }
+//
+//    memset(block_buffer, '0', BLOCK_SIZE);
+//    memcpy(block_buffer, inode_bitmap, MAX_INODES / 8);
+//    block_write(INODE_BITMAP_START, block_buffer);
 
     free(block_buffer);
     retstat = total_size_written;
 
-    log_msg("Updating size: (offset + size): %d   node->size: %d\n", (offset + size),  node->size);
+//    log_msg("Updating size: (offset + size): %d   node->size: %d\n", (offset + size),  node->size);
     if((orig_offset + size) > node->size){
         node->size = orig_offset + size;
     }
+
+    block_write(INODE_BLOCK_START + node_index/2, &inode_list[(node_index/2) * 2]);
+
+//    print_inode();
 
     return retstat;
 }
@@ -762,9 +801,12 @@ int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offse
 {
     int retstat = 0;
 
+    log_msg("sfs_readdir: called\n");
+//    print_inode();
+
     if(find_inode(path) < 0){
         retstat = -ENOENT;
-        return retstat
+        return retstat;
     }
 
     //fill for the buffer
@@ -774,8 +816,10 @@ int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offse
 
     for (; i < MAX_INODES; i++)
     {
+//        log_msg("Inspecting inode : %d\n", i);
         if (inode_bitmap[i / 8] & 1 << (7 - (i % 8)))
         {
+//            log_msg("Set_Bit found : %d\n", i);
             inode *node = &inode_list[i];
             int parent_index = find_parent(node->path);
 
