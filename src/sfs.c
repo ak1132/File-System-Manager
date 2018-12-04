@@ -110,6 +110,30 @@ int find_inode(char *path)
     return -1;
 }
 
+int substring(char *source, int from, int n, char *target){
+    int length,i;
+    //get string length
+    length = strlen(source);
+
+    if(from>length){
+        printf("Starting index is invalid.\n");
+        return 1;
+    }
+
+    if((from+n)>length){
+        //get substring till end
+        n=(length-from);
+    }
+
+    //get substring in target
+    for(i=0;i<n;i++){
+        target[i]=source[from+i];
+    }
+    target[i]='\0'; //assign null at last
+
+    return 0;
+}
+
 int find_parent(char path[])
 {
     int length = strlen(path);
@@ -120,7 +144,6 @@ int find_parent(char path[])
         return 0;
 
     int i;
-    char parent[MAX_PATH];
     int p = -1;
     for (i = length - 1; i >= 0; i--)
     {
@@ -137,17 +160,61 @@ int find_parent(char path[])
         return -1;
     }
 
-    if (i >= 0)
-    {
-        strncpy(parent, path, i + 1);
-        log_msg("Found parent at %s at %d\n", parent, i);
-        if (find_inode(parent) > -1)
-        {
-            return i;
-        }
+    if(i==0){
+        return 0;
     }
+    char parent_path[MAX_PATH];
+    substring(path,0, i,parent_path);
+    log_msg("parent path : %s\n", parent_path);
+
+    int parent_index = find_inode(parent_path);
+
+      if(parent_index > -1) {
+          return parent_index;
+      }
     return -1;
 }
+
+
+//
+//int find_parent(char path[])
+//{
+//    int length = strlen(path);
+//    if (path == NULL || length == 0)
+//        return -1;
+//
+//    if (length == 1)
+//        return 0;
+//
+//    int i;
+//    char parent[MAX_PATH];
+//    int p = -1;
+//    for (i = length - 1; i >= 0; i--)
+//    {
+//        if (path[i] == '/')
+//        {
+//            p = 0;
+//            break;
+//        }
+//    }
+//
+//    if (p == -1)
+//    {
+//        //log_msg("Some weird shit \n");
+//        return -1;
+//    }
+//
+//    if (i >= 0)
+//    {
+//        strncpy(parent, path, i + 1);
+//        log_msg("Found parent at %s at %d\n", parent, i);
+//        if (find_inode(parent) > -1)
+//        {
+//            return i;
+//        }
+//    }
+//    return -1;
+//}
 
 void print_inode()
 {
@@ -181,8 +248,6 @@ int get_first_unset_bit(char bitmap[])
         {
             if (!(bitmap[i] & (1 << (8 - j))))
             {
-                //                log_msg("\nclear bit found at (%d,%d) %d\n",
-                //                        i, j - 1);
                 return ((i * 8) + j - 1);
             }
         }
@@ -219,7 +284,7 @@ void *sfs_init(struct fuse_conn_info *conn)
 {
     fprintf(stderr, "in bb-init\n");
     log_msg("\nsfs_init()\n");
-    log_msg("Size of inode : %d\n", sizeof(inode));
+    //log_msg("Size of inode : %d\n", sizeof(inode));
     log_conn(conn);
     log_fuse_context(fuse_get_context());
 
@@ -398,6 +463,7 @@ int sfs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 
                 //Update parent inode
                 int parent_index = find_parent(path);
+                log_msg("Parent Found : %s\n", inode_list[parent_index].path);
                 if (parent_index == -1)
                 {
                     //log_msg("Some shit at index %d\n", parent_index);
@@ -410,8 +476,8 @@ int sfs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
                     if (S_ISDIR(p->mode) == 0)
                     {
                         log_msg("Parent is not a directory\n");
-                        retstat = -EFAULT;
-                        return retstat;
+                        //retstat = -EFAULT;
+                        return errno;
                     }
                     p->link_count++;
                 }
@@ -430,6 +496,7 @@ int sfs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
         }
         else
         {
+            log_msg("Disk out of memory\n");
             retstat = -ENOMEM; //Disk out of memory
         }
     }
@@ -474,12 +541,12 @@ int sfs_unlink(const char *path)
             else
             {
                 log_msg("Cannot delete Root\n");
-                retstat - EFAULT;
+                retstat = -errno;
             }
         }
         else
         {
-            retstat - EFAULT;
+            retstat = - errno;
             log_msg("Not a File : %s\n", path);
         }
     }
@@ -508,15 +575,15 @@ int sfs_open(const char *path, struct fuse_file_info *fi)
     log_msg("\nsfs_open(path\"%s\", fi=0x%08x)\n",
             path, fi);
 
-    int fd = open(path, fi->flags);
-
-    if (fd < 0)
-    {
-        log_msg("Unable to open file\n");
-        return -errno;
-    }
-
-    fi->fh = fd;
+//    int fd = open(path, fi->flags);
+//    log_msg("sfs_open : fd: %d\n", fd);
+//    if (fd < 0)
+//    {
+//        log_msg("Unable to open file errorno: %d\n", errno);
+//        return -errno;
+//    }
+//
+//    fi->fh = fd;
     return retstat;
 }
 
@@ -540,7 +607,7 @@ int sfs_release(const char *path, struct fuse_file_info *fi)
     log_msg("\nsfs_release(path=\"%s\", fi=0x%08x)\n",
             path, fi);
 
-    close(fi->fh);
+//    close(fi->fh);
 
     return retstat;
 }
@@ -571,7 +638,7 @@ int sfs_read(const char *path, char *buf, size_t size, off_t offset, struct fuse
     int total_size_read = 0, size_to_read = 0;
     int curr_block = start_block;
 
-    log_msg("offset: %d  size: %d   node->size: %d\n", offset, size, node->size);
+    //log_msg("offset: %d  size: %d   node->size: %d\n", offset, size, node->size);
     if (offset > node->size)
     {
         retstat = -EFAULT;
@@ -580,7 +647,7 @@ int sfs_read(const char *path, char *buf, size_t size, off_t offset, struct fuse
     }
     else if ((offset + size) > node->size)
     {
-        log_msg("sfs_read : Resting size from %d to %d\n", size, node->size);
+        //log_msg("sfs_read : Resting size from %d to %d\n", size, node->size);
         size = node->size - offset;
     }
 
@@ -607,7 +674,7 @@ int sfs_read(const char *path, char *buf, size_t size, off_t offset, struct fuse
             memset(block_buffer, '0', BLOCK_SIZE);
         }
 
-        log_msg("Reading from block : %d\n", node->blocks[curr_block]);
+        //log_msg("Reading from block : %d\n", node->blocks[curr_block]);
         block_read(DATA_BLOCK_START + node->blocks[curr_block], block_buffer);
 
         memcpy(buf_offset, block_buffer + offset, size_to_read);
@@ -615,26 +682,6 @@ int sfs_read(const char *path, char *buf, size_t size, off_t offset, struct fuse
         total_size_read += size_to_read;
         buf_offset = buf + total_size_read;
         offset = 0;
-        //
-        //
-        //        if(offset != 0) {
-        //            // We need to read from middle of a block
-        //            memcpy(buf_offset, block_buffer + offset, BLOCK_SIZE - offset + 1);
-        //            total_size_read += BLOCK_SIZE - offset + 1;
-        //            buf_offset = buf + total_size_read;
-        //            offset = 0;
-        //        }else if((size - total_size_read) <= BLOCK_SIZE){
-        //            // We need to read less the the BLOCK_SIZE
-        //            memcpy(buf_offset, block_buffer, size - total_size_read);
-        //            total_size_read = size;
-        //            buf_offset = buf + total_size_read;
-        //            offset = 0;
-        //        }else{
-        //            memcpy(buf_offset, block_buffer, BLOCK_SIZE);
-        //            total_size_read += BLOCK_SIZE;
-        //            buf_offset = buf + total_size_read;
-        //            offset = 0;
-        //        }
     }
 
     free(block_buffer);
@@ -673,22 +720,24 @@ int sfs_write(const char *path, const char *buf, size_t size, off_t offset,
     int file_max_blocks = node->size / BLOCK_SIZE;
     int free_block;
 
-    log_msg("total_size_read : %d   size : %d\n", total_size_written, size);
+    //log_msg("total_size_read : %d   size : %d\n", total_size_written, size);
     //TODO : Put limit on curr_block
     for (; total_size_written < size; curr_block++)
     {
+//        if(curr_block >= MAX_BLOCKS){
+//            log_msg("Max file size reached\n");
+//            return -EFAULT;
+//        }
 
         if (curr_block > file_max_blocks)
         {
             free_block = get_first_unset_bit(data_bitmap);
-            log_msg("Free_block : %d %ud", free_block, free_block);
+
             if (free_block > -1)
             {
                 set_bit(data_bitmap, free_block);
                 block_write(DATA_BITMAP_START + free_block / BLOCK_SIZE, data_bitmap + free_block / BLOCK_SIZE * BLOCK_SIZE);
                 node->blocks[curr_block] = free_block;
-                //                block_write(INODE_BLOCK_START + node_index/2, &inode_list[(node_index/2) * 2]);
-
                 file_max_blocks++;
             }
             else
@@ -699,7 +748,7 @@ int sfs_write(const char *path, const char *buf, size_t size, off_t offset,
             }
         }
 
-        log_msg("Writing in block : %d\n", DATA_BLOCK_START + node->blocks[curr_block]);
+        //log_msg("Writing in block : %d\n", DATA_BLOCK_START + node->blocks[curr_block]);
 
         if (offset == 0)
         {
@@ -720,24 +769,17 @@ int sfs_write(const char *path, const char *buf, size_t size, off_t offset,
             block_read(DATA_BLOCK_START + node->blocks[curr_block], block_buffer);
         }
 
-        //        log_msg("memcpy : block_buffer + offset: %d, buf_offset: %d, size_to_write: %d\n", block_buffer + offset, buf_offset, size_to_write);
         memcpy(block_buffer + offset, buf_offset, size_to_write);
-        //        log_msg("block_write: node->blocks[curr_block]: %d, block_buffer: %d\n", node->blocks[curr_block], block_buffer);
         block_write(DATA_BLOCK_START + node->blocks[curr_block], block_buffer);
 
         total_size_written += size_to_write;
         buf_offset = buf + total_size_written;
         offset = 0;
     }
-    //
-    //    memset(block_buffer, '0', BLOCK_SIZE);
-    //    memcpy(block_buffer, inode_bitmap, MAX_INODES / 8);
-    //    block_write(INODE_BITMAP_START, block_buffer);
 
     free(block_buffer);
     retstat = total_size_written;
 
-    //    log_msg("Updating size: (offset + size): %d   node->size: %d\n", (offset + size),  node->size);
     if ((orig_offset + size) > node->size)
     {
         node->size = orig_offset + size;
@@ -757,6 +799,24 @@ int sfs_mkdir(const char *path, mode_t mode)
     log_msg("\nsfs_mkdir(path=\"%s\", mode=0%3o)\n",
             path, mode);
 
+    time_t t = time(NULL);
+    int index = get_first_unset_bit(inode_bitmap);
+    if(index > -1) {
+        inode* node = &inode_list[index];
+        set_bit(inode_bitmap,index);
+        memcpy(node->path, path, strlen(path));   // set inode 0 as root by default
+        node->mode = S_IFDIR | 0755;
+        node->size = 0;
+        node->created = t;
+        node->link_count = 2;
+        node->uid = getuid();
+        node->gid = getegid();
+        block_write(INODE_BITMAP_START,inode_bitmap);
+        block_write(INODE_BLOCK_START + index / 2, &inode_list[(index / 2) * 2]);
+    } else{
+        log_msg("Directory creation failed..\n");
+        retstat =  -ENOENT;
+    }
     return retstat;
 }
 
@@ -766,6 +826,31 @@ int sfs_rmdir(const char *path)
     int retstat = 0;
     log_msg("sfs_rmdir(path=\"%s\")\n",
             path);
+
+    int dir_index = find_inode(path);
+
+    if(dir_index > -1){
+        inode *dir = &inode_list[dir_index];
+
+        if(S_ISDIR(dir->mode) == 0){
+
+            if(dir->link_count > 2){
+                log_msg("Directory contains files deletion aborted\n");
+                return -EFAULT;
+            }
+
+            unset_bit(inode_bitmap,dir_index);
+            block_write(INODE_BITMAP_START,inode_bitmap);
+
+        }else{
+            log_msg("%s not a directory\n",path);
+            retstat = -errno;
+        }
+
+    }else{
+        log_msg("Directory with path %s not found\n",path);
+        retstat = -errno;
+    }
 
     return retstat;
 }
@@ -788,7 +873,6 @@ int sfs_opendir(const char *path, struct fuse_file_info *fi)
     if (index >= 0)
     {
         inode *node = &inode_list[index];
-        //log_msg("Directory file found\n");
         if (S_ISDIR(node->mode) == 0)
         {
             log_msg("File is not a directory\n");
@@ -829,7 +913,9 @@ int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offse
 {
     int retstat = 0;
 
-    log_msg("sfs_readdir: called\n");
+    log_msg("\nsfs_readdir(path=\"%s\", fi=0x%08x)\n",
+            path, fi);
+
     //    print_inode();
 
     if (find_inode(path) < 0)
@@ -845,10 +931,8 @@ int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offse
 
     for (; i < MAX_INODES; i++)
     {
-        //        log_msg("Inspecting inode : %d\n", i);
         if (inode_bitmap[i / 8] & 1 << (7 - (i % 8)))
         {
-            //            log_msg("Set_Bit found : %d\n", i);
             inode *node = &inode_list[i];
             int parent_index = find_parent(node->path);
 
@@ -881,7 +965,8 @@ int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offse
 int sfs_releasedir(const char *path, struct fuse_file_info *fi)
 {
     int retstat = 0;
-    log_msg("sfs_release triggered\n");
+    log_msg("\nsfs_releasedir(path=\"%s\", fi=0x%08x)\n",
+            path, fi);
     return retstat;
 }
 
